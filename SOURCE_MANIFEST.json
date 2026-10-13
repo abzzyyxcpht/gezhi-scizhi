@@ -1,7 +1,7 @@
 {
   ".env.example": "1580158db86137127105c617fe59ee44b36cd5f3cc233edf543cfe7b1e8b661c",
   ".gitattributes": "4baa1cb57bb3f6a6255dba134594eb4ce9643f31c4d2e92b9c07f9cac3cc301e",
-  ".github/workflows/ci.yml": "0ecc4719fe52c63305189a3157084402fcd3b589a9773c5b44c7aeccee9f6967",
+  ".github/workflows/ci.yml": "84d9b2a950edc45868f69b305bda187bcdf9c30e502e459d86bc0b7323ac5936",
   ".gitignore": "f6e49a64de526c855b3924a175f6f3ed61368f498e6eafa7437acb2a2cd11891",
   "CONTRIBUTING.md": "7b5dad1dc935f57acc9cc1fc4583e71809b9b681546067b43a712fb1284980db",
   "Gezhi.spec": "a8d9bcfd7ee2628cac727f2be522c9efdc86be62707926e6df6aadbed972d190",
@@ -26,7 +26,7 @@
   "plugins/bibtex_export.py": "6bff89e29c51bd4737305e1c22f1ffcc662b7c023b355a7d2f86dadb32b41c01",
   "plugins/term_freq.py": "c376112622de5f810203db503a465d4237539db018ae4f0332484e211728e545",
   "pytest.ini": "c809c969ec7e11b9ff37784e9c6fcc0b7c5148d168e18b05aed797e03fbd6ead",
-  "requirements-dev.txt": "5d386f29ced38fe8d2e96aed0bef911dd2a81c38f1866d3fca793d222ee4c740",
+  "requirements-dev.txt": "bb3350c118fd4fbcdcff204a55e3eaad5cea95ddaa57b56b7fb879a1455c70a4",
   "requirements.txt": "8210f7a853885a0ee54cae4cb9b861311a7e40aa981dd4f984bc0e0556d2bec9",
   "scripts/benchmark_composer_drafts.py": "4494ef1e8c2b9fe1998fdf8a7b05c89392900f244438ffde7a0e0c882e551bd0",
   "scripts/benchmark_context_integrity.py": "97c4d49a43743aa08bc6ef1645dfbb8c0685520aa62852ab992af30f899e76c6",
