@@ -20,7 +20,23 @@ STEPS = [
 ]
 
 
+def _configure_stdio() -> None:
+    """Keep CI diagnostics printable on Windows runners using a legacy code page."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+        except (AttributeError, OSError):
+            # Some embedders expose a stream-like object without reconfigurable encoding.
+            continue
+
+
 def main() -> int:
+    _configure_stdio()
+    # Fresh GitHub checkouts do not contain the ignored build/ directory.
+    (ROOT / "build").mkdir(parents=True, exist_ok=True)
     failed = False
     for name, cmd, cwd in STEPS:
         if cmd[0] in {"npm", "npm.cmd"} and shutil.which(cmd[0]) is None:

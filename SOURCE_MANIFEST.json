@@ -1,7 +1,7 @@
 {
   ".env.example": "1580158db86137127105c617fe59ee44b36cd5f3cc233edf543cfe7b1e8b661c",
   ".gitattributes": "4baa1cb57bb3f6a6255dba134594eb4ce9643f31c4d2e92b9c07f9cac3cc301e",
-  ".github/workflows/ci.yml": "3859516f32bb1813e05ecbdecb838198932d173a49c6dafbb79e507450a21f84",
+  ".github/workflows/ci.yml": "0ecc4719fe52c63305189a3157084402fcd3b589a9773c5b44c7aeccee9f6967",
   ".gitignore": "f6e49a64de526c855b3924a175f6f3ed61368f498e6eafa7437acb2a2cd11891",
   "CONTRIBUTING.md": "7b5dad1dc935f57acc9cc1fc4583e71809b9b681546067b43a712fb1284980db",
   "Gezhi.spec": "a8d9bcfd7ee2628cac727f2be522c9efdc86be62707926e6df6aadbed972d190",
@@ -59,7 +59,7 @@
   "scripts/prepare_opensource.py": "002ba946d68fe0e436dba9eb86c4ee379fb7a964b2b2f76b8d3fecfaa46f4cfd",
   "scripts/publish_github.ps1": "27fd5ac244ea148fbf28b4c2b2b4e0f7b6157bbfd84449fd64a02bee4a699ee0",
   "scripts/release_check.py": "de9c229136f7007ad3e60b1fbb8d1c584fc56ce19060c497ea4babc365336d52",
-  "scripts/run_ci.py": "a4a07981e2177b1735a318cee85269fd9888845b9d875c23d6cdbabf7ac2811f",
+  "scripts/run_ci.py": "befc418918f33f3635ef056510c3601e222b884c723ac66992c815d8d66429ff",
   "scripts/run_eval_set.py": "c3e8d3a71112b3a2f1768922b5e4a10329440f295d0a8b8d5d147d54d1915a01",
   "scripts/verify_agent_polish_preview.py": "31f0b6b949e37ccb16296c6faa2bc76fcee4d54e41bafedd3b1a8ebfdaaf57bb",
   "scripts/verify_comprehensive_upgrade.py": "576b98739665b0d8ce0b4e89f1dca2ef87dbef479d8aecc9f3107193a39b00c1",
