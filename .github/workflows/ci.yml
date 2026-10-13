@@ -9,9 +9,6 @@ jobs:
   test:
     runs-on: windows-latest
     env:
-      GEZHI_DATA_DIR: '${{ runner.temp }}\gezhi-data'
-      TEMP: ${{ runner.temp }}
-      TMP: ${{ runner.temp }}
       PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v7
@@ -27,4 +24,9 @@ jobs:
         run: npm ci
         working-directory: tui
       - name: Run CI
-        run: python scripts/run_ci.py
+        shell: pwsh
+        run: |
+          $env:TEMP = $env:RUNNER_TEMP
+          $env:TMP = $env:RUNNER_TEMP
+          $env:GEZHI_DATA_DIR = Join-Path $env:RUNNER_TEMP "gezhi-data"
+          python scripts/run_ci.py
