@@ -20,7 +20,8 @@
 
 ```powershell
 python -m pip install -r requirements.txt
-python scripts/gezhi.py
+python scripts/gezhi.py doctor
+python scripts/gezhi.py demo "large language model agents"
 ```
 
 桌面端、终端端和离线演示的说明请参考根目录源码与 `README.md`。
