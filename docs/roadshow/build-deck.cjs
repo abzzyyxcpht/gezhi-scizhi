@@ -483,7 +483,11 @@ function safety() {
   imageFrame(s, { path: DEMO_RESULTS, x: 7.45, y: top + 2.5, w: 5.13, h: 2.45, label: "真机 · 研究包入口", dark: true })
   s.addText("安全性有证据，开源有连接。", { x: M, y: top + 4.25, w: CW, h: 0.3, fontFace: FONT, fontSize: 12, bold: true, color: C.accent, margin: 0 })
   s.addShape(pres.shapes.RECTANGLE, { x: M, y: top + 4.62, w: 7.05, h: 0.36, fill: { color: "F4FAF7" }, line: { color: "BFD9CE", width: 0.8 } })
-  s.addText("持续更新仓库  ·  github.com/abzzyyxcpht/gezhi-scizhi  ·  Apache-2.0  ·  README / CHANGELOG / CI", { x: M + 0.16, y: top + 4.71, w: 6.75, h: 0.16, fontFace: FONT, fontSize: 9.1, color: "286557", bold: true, margin: 0 })
+  s.addText([
+    { text: "持续更新仓库  ·  ", options: { color: "286557", bold: true } },
+    { text: "github.com/abzzyyxcpht/gezhi-scizhi", options: { color: "286557", bold: true, hyperlink: { url: GITHUB_URL } } },
+    { text: "  ·  Apache-2.0  ·  README / CHANGELOG / CI", options: { color: "286557", bold: true } },
+  ], { x: M + 0.16, y: top + 4.71, w: 6.75, h: 0.16, fontFace: FONT, fontSize: 9.1, margin: 0 })
   footer(s)
   return s
 }
