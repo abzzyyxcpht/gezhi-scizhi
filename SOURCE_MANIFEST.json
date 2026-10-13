@@ -1,7 +1,7 @@
 {
   ".env.example": "1580158db86137127105c617fe59ee44b36cd5f3cc233edf543cfe7b1e8b661c",
   ".gitattributes": "4baa1cb57bb3f6a6255dba134594eb4ce9643f31c4d2e92b9c07f9cac3cc301e",
-  ".github/workflows/ci.yml": "84d9b2a950edc45868f69b305bda187bcdf9c30e502e459d86bc0b7323ac5936",
+  ".github/workflows/ci.yml": "6421cba0406ecc2af77cc6610d13e430e945230a3bb9b84428025bde01392f2b",
   ".gitignore": "f6e49a64de526c855b3924a175f6f3ed61368f498e6eafa7437acb2a2cd11891",
   "CONTRIBUTING.md": "7b5dad1dc935f57acc9cc1fc4583e71809b9b681546067b43a712fb1284980db",
   "Gezhi.spec": "a8d9bcfd7ee2628cac727f2be522c9efdc86be62707926e6df6aadbed972d190",

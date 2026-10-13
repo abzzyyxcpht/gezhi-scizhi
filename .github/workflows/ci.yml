@@ -9,7 +9,7 @@ jobs:
   test:
     runs-on: windows-latest
     env:
-      GEZHI_DATA_DIR: ${{ runner.temp }}\gezhi-data
+      GEZHI_DATA_DIR: '${{ runner.temp }}\gezhi-data'
       TEMP: ${{ runner.temp }}
       TMP: ${{ runner.temp }}
       PYTHONUTF8: "1"
