@@ -1,0 +1,19 @@
+# 格致 SciZhi · 论文复现流水线（Claude Code 复现基准实践对标）
+# 计划 → 人工确认 → 白名单执行 → 结果入科研记录；失败也入库（不编造结果）
+name: reproduce
+version: 0.1.0
+description: 论文复现流水线：环境/依赖/基线计划 → 人工关口 → 白名单命令执行 → 实验记录
+nodes:
+  - id: reproduce_plan
+    type: tool
+    action: reproduce_plan
+    next: reproduce_confirm
+  - id: reproduce_confirm
+    type: human_approval
+    message: 请确认复现计划（基线命令将在项目根目录沙箱执行；可修改后继续）
+    next: reproduce_run
+  - id: reproduce_run
+    type: tool
+    action: reproduce_run
+    next: null
+checkpoint: {backend: file, granularity: node}

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"
+     viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">SciZhi / 格致</title>
+  <desc id="description">SciZhi / 格致：展开的书页与一枚研究坐标圆点。</desc>
+  <rect x="24" y="24" width="464" height="464"
+        rx="104" fill="#286557"/>
+  <g fill="#FFFFFF">
+    <polygon points="112,160 204,176 240,196 240,356 204,336 112,320"/>
+    <polygon points="272,196 306,178 340,172 340,212 400,194 400,320 308,336 272,356"/>
+    <circle cx="384" cy="140" r="22"/>
+  </g>
+</svg>

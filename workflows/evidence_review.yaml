@@ -1,0 +1,24 @@
+name: evidence_review
+version: 0.1.0
+description: 人工审核文献池后抽取方法、结果和局限，形成可追溯证据摘要与引用清单
+nodes:
+  - id: lit_filter
+    type: tool
+    action: literature_recursive_filter
+    params: {threshold: 0.22}
+    next: human_review
+  - id: human_review
+    type: human_approval
+    message: 请核对证据来源、相关性与覆盖范围，剔除不合适的文献后手动确认
+    next: extract
+  - id: extract
+    type: tool
+    action: extract_pool
+    params: {limit: 30}
+    next: citation
+  - id: citation
+    type: tool
+    action: format_references
+    params: {limit: 30}
+    next: null
+checkpoint: {backend: file, granularity: node}

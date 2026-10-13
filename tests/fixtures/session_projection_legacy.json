@@ -1,0 +1,898 @@
+{
+  "source": "Captured from pre-incremental SessionStore._project on 2026-09-27; immutable compatibility oracle.",
+  "cases": [
+    {
+      "name": "permissions_terminal_and_new_turn",
+      "events": [
+        {
+          "type": "session_created",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "project_id": "project1",
+            "parent_id": "parent1"
+          }
+        },
+        {
+          "type": "user_message",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "text": "First request",
+            "mode": "agent",
+            "agent": "research"
+          }
+        },
+        {
+          "type": "agent_selected",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "agent": "literature"
+          }
+        },
+        {
+          "type": "plan_created",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "plan": {
+              "mode": "agent",
+              "request": "First request",
+              "steps": [
+                {
+                  "tool": "fixture"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "permission_requested",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "tool_call_id": "same-call",
+            "tool": "fixture",
+            "capability": "write",
+            "arguments": {
+              "nested": [
+                1
+              ]
+            }
+          }
+        },
+        {
+          "type": "permission_granted",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "tool_call_id": "same-call"
+          }
+        },
+        {
+          "type": "permission_requested",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "tool_call_id": "same-call",
+            "tool": "fixture"
+          }
+        },
+        {
+          "type": "tool_call",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "id": "same-call",
+            "name": "fixture"
+          }
+        },
+        {
+          "type": "tool_result",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "id": "same-call",
+            "recoverable": true,
+            "result": {
+              "ok": false
+            }
+          }
+        },
+        {
+          "type": "driver_paused",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "status": "waiting_task",
+            "task_id": "task1"
+          }
+        },
+        {
+          "type": "driver_started",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "driver": "adaptive"
+          }
+        },
+        {
+          "type": "assistant_message",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "content": "Visible result"
+          }
+        },
+        {
+          "type": "cancel_requested",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {}
+        },
+        {
+          "type": "completed",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "status": "cancelled"
+          }
+        },
+        {
+          "type": "tool_result",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "id": "late",
+            "result": {
+              "ok": true
+            }
+          }
+        },
+        {
+          "type": "driver_paused",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "status": "waiting_children"
+          }
+        },
+        {
+          "type": "user_message",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "text": "Second request",
+            "mode": "agent"
+          }
+        },
+        {
+          "type": "permission_requested",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "tool_call_id": "same-call",
+            "tool": "fixture"
+          }
+        },
+        {
+          "type": "permission_requested",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "tool_call_id": "next-call",
+            "tool": "fixture2"
+          }
+        },
+        {
+          "type": "permission_denied",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "tool_call_id": "next-call"
+          }
+        },
+        {
+          "type": "assistant_message",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "content": "Explanation after denial"
+          }
+        },
+        {
+          "type": "user_message",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "text": "Plan only",
+            "mode": "plan"
+          }
+        },
+        {
+          "type": "plan_created",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "plan": {
+              "steps": []
+            }
+          }
+        },
+        {
+          "type": "completed",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "status": "done"
+          }
+        }
+      ],
+      "states": [
+        {
+          "session_id": "legacy",
+          "status": "unknown",
+          "request": "",
+          "agent": "research",
+          "mode": "",
+          "plan": null,
+          "pending": null
+        },
+        {
+          "session_id": "legacy",
+          "status": "draft",
+          "request": "",
+          "agent": "research",
+          "mode": "",
+          "plan": null,
+          "pending": null,
+          "project_id": "project1",
+          "parent_id": "parent1"
+        },
+        {
+          "session_id": "legacy",
+          "status": "running",
+          "request": "First request",
+          "agent": "research",
+          "mode": "agent",
+          "plan": null,
+          "pending": null,
+          "project_id": "project1",
+          "parent_id": "parent1",
+          "content": ""
+        },
+        {
+          "session_id": "legacy",
+          "status": "running",
+          "request": "First request",
+          "agent": "literature",
+          "mode": "agent",
+          "plan": null,
+          "pending": null,
+          "project_id": "project1",
+          "parent_id": "parent1",
+          "content": ""
+        },
+        {
+          "session_id": "legacy",
+          "status": "running",
+          "request": "First request",
+          "agent": "literature",
+          "mode": "agent",
+          "plan": {
+            "mode": "agent",
+            "request": "First request",
+            "steps": [
+              {
+                "tool": "fixture"
+              }
+            ]
+          },
+          "pending": null,
+          "project_id": "project1",
+          "parent_id": "parent1",
+          "content": ""
+        },
+        {
+          "session_id": "legacy",
+          "status": "waiting_approval",
+          "request": "First request",
+          "agent": "literature",
+          "mode": "agent",
+          "plan": {
+            "mode": "agent",
+            "request": "First request",
+            "steps": [
+              {
+                "tool": "fixture"
+              }
+            ]
+          },
+          "pending": {
+            "id": "same-call",
+            "tool": "fixture",
+            "capability": "write",
+            "arguments": {
+              "nested": [
+                1
+              ]
+            }
+          },
+          "project_id": "project1",
+          "parent_id": "parent1",
+          "content": ""
+        },
+        {
+          "session_id": "legacy",
+          "status": "running",
+          "request": "First request",
+          "agent": "literature",
+          "mode": "agent",
+          "plan": {
+            "mode": "agent",
+            "request": "First request",
+            "steps": [
+              {
+                "tool": "fixture"
+              }
+            ]
+          },
+          "pending": null,
+          "project_id": "project1",
+          "parent_id": "parent1",
+          "content": ""
+        },
+        {
+          "session_id": "legacy",
+          "status": "running",
+          "request": "First request",
+          "agent": "literature",
+          "mode": "agent",
+          "plan": {
+            "mode": "agent",
+            "request": "First request",
+            "steps": [
+              {
+                "tool": "fixture"
+              }
+            ]
+          },
+          "pending": null,
+          "project_id": "project1",
+          "parent_id": "parent1",
+          "content": ""
+        },
+        {
+          "session_id": "legacy",
+          "status": "running",
+          "request": "First request",
+          "agent": "literature",
+          "mode": "agent",
+          "plan": {
+            "mode": "agent",
+            "request": "First request",
+            "steps": [
+              {
+                "tool": "fixture"
+              }
+            ]
+          },
+          "pending": null,
+          "project_id": "project1",
+          "parent_id": "parent1",
+          "content": ""
+        },
+        {
+          "session_id": "legacy",
+          "status": "running",
+          "request": "First request",
+          "agent": "literature",
+          "mode": "agent",
+          "plan": {
+            "mode": "agent",
+            "request": "First request",
+            "steps": [
+              {
+                "tool": "fixture"
+              }
+            ]
+          },
+          "pending": null,
+          "project_id": "project1",
+          "parent_id": "parent1",
+          "content": ""
+        },
+        {
+          "session_id": "legacy",
+          "status": "waiting_task",
+          "request": "First request",
+          "agent": "literature",
+          "mode": "agent",
+          "plan": {
+            "mode": "agent",
+            "request": "First request",
+            "steps": [
+              {
+                "tool": "fixture"
+              }
+            ]
+          },
+          "pending": null,
+          "project_id": "project1",
+          "parent_id": "parent1",
+          "content": "",
+          "task_id": "task1"
+        },
+        {
+          "session_id": "legacy",
+          "status": "waiting_task",
+          "request": "First request",
+          "agent": "literature",
+          "mode": "agent",
+          "plan": {
+            "mode": "agent",
+            "request": "First request",
+            "steps": [
+              {
+                "tool": "fixture"
+              }
+            ]
+          },
+          "pending": null,
+          "project_id": "project1",
+          "parent_id": "parent1",
+          "content": "",
+          "task_id": "task1",
+          "driver": "adaptive"
+        },
+        {
+          "session_id": "legacy",
+          "status": "waiting_task",
+          "request": "First request",
+          "agent": "literature",
+          "mode": "agent",
+          "plan": {
+            "mode": "agent",
+            "request": "First request",
+            "steps": [
+              {
+                "tool": "fixture"
+              }
+            ]
+          },
+          "pending": null,
+          "project_id": "project1",
+          "parent_id": "parent1",
+          "content": "Visible result",
+          "task_id": "task1",
+          "driver": "adaptive"
+        },
+        {
+          "session_id": "legacy",
+          "status": "cancelling",
+          "request": "First request",
+          "agent": "literature",
+          "mode": "agent",
+          "plan": {
+            "mode": "agent",
+            "request": "First request",
+            "steps": [
+              {
+                "tool": "fixture"
+              }
+            ]
+          },
+          "pending": null,
+          "project_id": "project1",
+          "parent_id": "parent1",
+          "content": "Visible result",
+          "task_id": "task1",
+          "driver": "adaptive"
+        },
+        {
+          "session_id": "legacy",
+          "status": "cancelled",
+          "request": "First request",
+          "agent": "literature",
+          "mode": "agent",
+          "plan": {
+            "mode": "agent",
+            "request": "First request",
+            "steps": [
+              {
+                "tool": "fixture"
+              }
+            ]
+          },
+          "pending": null,
+          "project_id": "project1",
+          "parent_id": "parent1",
+          "content": "Visible result",
+          "task_id": "task1",
+          "driver": "adaptive"
+        },
+        {
+          "session_id": "legacy",
+          "status": "cancelled",
+          "request": "First request",
+          "agent": "literature",
+          "mode": "agent",
+          "plan": {
+            "mode": "agent",
+            "request": "First request",
+            "steps": [
+              {
+                "tool": "fixture"
+              }
+            ]
+          },
+          "pending": null,
+          "project_id": "project1",
+          "parent_id": "parent1",
+          "content": "Visible result",
+          "task_id": "task1",
+          "driver": "adaptive"
+        },
+        {
+          "session_id": "legacy",
+          "status": "cancelled",
+          "request": "First request",
+          "agent": "literature",
+          "mode": "agent",
+          "plan": {
+            "mode": "agent",
+            "request": "First request",
+            "steps": [
+              {
+                "tool": "fixture"
+              }
+            ]
+          },
+          "pending": null,
+          "project_id": "project1",
+          "parent_id": "parent1",
+          "content": "Visible result",
+          "task_id": "task1",
+          "driver": "adaptive"
+        },
+        {
+          "session_id": "legacy",
+          "status": "running",
+          "request": "Second request",
+          "agent": "literature",
+          "mode": "agent",
+          "plan": null,
+          "pending": null,
+          "project_id": "project1",
+          "parent_id": "parent1",
+          "content": "",
+          "task_id": "task1",
+          "driver": "adaptive"
+        },
+        {
+          "session_id": "legacy",
+          "status": "running",
+          "request": "Second request",
+          "agent": "literature",
+          "mode": "agent",
+          "plan": null,
+          "pending": null,
+          "project_id": "project1",
+          "parent_id": "parent1",
+          "content": "",
+          "task_id": "task1",
+          "driver": "adaptive"
+        },
+        {
+          "session_id": "legacy",
+          "status": "waiting_approval",
+          "request": "Second request",
+          "agent": "literature",
+          "mode": "agent",
+          "plan": null,
+          "pending": {
+            "id": "next-call",
+            "tool": "fixture2",
+            "capability": "",
+            "arguments": {}
+          },
+          "project_id": "project1",
+          "parent_id": "parent1",
+          "content": "",
+          "task_id": "task1",
+          "driver": "adaptive"
+        },
+        {
+          "session_id": "legacy",
+          "status": "blocked",
+          "request": "Second request",
+          "agent": "literature",
+          "mode": "agent",
+          "plan": null,
+          "pending": null,
+          "project_id": "project1",
+          "parent_id": "parent1",
+          "content": "",
+          "task_id": "task1",
+          "driver": "adaptive"
+        },
+        {
+          "session_id": "legacy",
+          "status": "blocked",
+          "request": "Second request",
+          "agent": "literature",
+          "mode": "agent",
+          "plan": null,
+          "pending": null,
+          "project_id": "project1",
+          "parent_id": "parent1",
+          "content": "Explanation after denial",
+          "task_id": "task1",
+          "driver": "adaptive"
+        },
+        {
+          "session_id": "legacy",
+          "status": "planned",
+          "request": "Plan only",
+          "agent": "literature",
+          "mode": "plan",
+          "plan": null,
+          "pending": null,
+          "project_id": "project1",
+          "parent_id": "parent1",
+          "content": "",
+          "task_id": "task1",
+          "driver": "adaptive"
+        },
+        {
+          "session_id": "legacy",
+          "status": "planned",
+          "request": "Plan only",
+          "agent": "literature",
+          "mode": "plan",
+          "plan": {
+            "steps": []
+          },
+          "pending": null,
+          "project_id": "project1",
+          "parent_id": "parent1",
+          "content": "",
+          "task_id": "task1",
+          "driver": "adaptive"
+        },
+        {
+          "session_id": "legacy",
+          "status": "done",
+          "request": "Plan only",
+          "agent": "literature",
+          "mode": "plan",
+          "plan": {
+            "steps": []
+          },
+          "pending": null,
+          "project_id": "project1",
+          "parent_id": "parent1",
+          "content": "",
+          "task_id": "task1",
+          "driver": "adaptive"
+        }
+      ]
+    },
+    {
+      "name": "failures_and_defaults",
+      "events": [
+        {
+          "type": "plan_created",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "plan": {
+              "mode": "plan",
+              "request": "Legacy plan",
+              "steps": []
+            }
+          }
+        },
+        {
+          "type": "user_message",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "text": "Execution",
+            "mode": "agent"
+          }
+        },
+        {
+          "type": "permission_requested",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "tool_call_id": "c1",
+            "tool": "fixture"
+          }
+        },
+        {
+          "type": "tool_result",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "id": "c1",
+            "result": {
+              "ok": false
+            }
+          }
+        },
+        {
+          "type": "permission_requested",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "tool_call_id": "c2",
+            "tool": "fixture"
+          }
+        },
+        {
+          "type": "completed",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "status": "error"
+          }
+        },
+        {
+          "type": "user_message",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "text": "Retry",
+            "mode": "review",
+            "agent": "critic"
+          }
+        },
+        {
+          "type": "driver_paused",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {}
+        },
+        {
+          "type": "error",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {
+            "message": "failed"
+          }
+        },
+        {
+          "type": "completed",
+          "session_id": "legacy",
+          "timestamp": "2026-09-27T01:00:00+0000",
+          "payload": {}
+        }
+      ],
+      "states": [
+        {
+          "session_id": "legacy",
+          "status": "unknown",
+          "request": "",
+          "agent": "research",
+          "mode": "",
+          "plan": null,
+          "pending": null
+        },
+        {
+          "session_id": "legacy",
+          "status": "planned",
+          "request": "Legacy plan",
+          "agent": "research",
+          "mode": "plan",
+          "plan": {
+            "mode": "plan",
+            "request": "Legacy plan",
+            "steps": []
+          },
+          "pending": null
+        },
+        {
+          "session_id": "legacy",
+          "status": "running",
+          "request": "Execution",
+          "agent": "research",
+          "mode": "agent",
+          "plan": null,
+          "pending": null,
+          "content": ""
+        },
+        {
+          "session_id": "legacy",
+          "status": "waiting_approval",
+          "request": "Execution",
+          "agent": "research",
+          "mode": "agent",
+          "plan": null,
+          "pending": {
+            "id": "c1",
+            "tool": "fixture",
+            "capability": "",
+            "arguments": {}
+          },
+          "content": ""
+        },
+        {
+          "session_id": "legacy",
+          "status": "error",
+          "request": "Execution",
+          "agent": "research",
+          "mode": "agent",
+          "plan": null,
+          "pending": null,
+          "content": ""
+        },
+        {
+          "session_id": "legacy",
+          "status": "error",
+          "request": "Execution",
+          "agent": "research",
+          "mode": "agent",
+          "plan": null,
+          "pending": null,
+          "content": ""
+        },
+        {
+          "session_id": "legacy",
+          "status": "error",
+          "request": "Execution",
+          "agent": "research",
+          "mode": "agent",
+          "plan": null,
+          "pending": null,
+          "content": ""
+        },
+        {
+          "session_id": "legacy",
+          "status": "running",
+          "request": "Retry",
+          "agent": "critic",
+          "mode": "review",
+          "plan": null,
+          "pending": null,
+          "content": ""
+        },
+        {
+          "session_id": "legacy",
+          "status": "paused",
+          "request": "Retry",
+          "agent": "critic",
+          "mode": "review",
+          "plan": null,
+          "pending": null,
+          "content": "",
+          "task_id": null
+        },
+        {
+          "session_id": "legacy",
+          "status": "error",
+          "request": "Retry",
+          "agent": "critic",
+          "mode": "review",
+          "plan": null,
+          "pending": null,
+          "content": "",
+          "task_id": null
+        },
+        {
+          "session_id": "legacy",
+          "status": "done",
+          "request": "Retry",
+          "agent": "critic",
+          "mode": "review",
+          "plan": null,
+          "pending": null,
+          "content": "",
+          "task_id": null
+        }
+      ]
+    }
+  ]
+}

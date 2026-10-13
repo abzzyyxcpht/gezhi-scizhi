@@ -1,0 +1,57 @@
+# 格致 SciZhi 离线评测集（脱敏课题）。
+#
+# 口径说明：
+# - 全程不触网：候选文献全部来自 src/agents/fixtures/demo_works（合成样例，
+#   题名带【离线演示样例】标记，source_type=synthetic_demo），不构成真实科研证据；
+# - 评测目的是验证「检索漏斗 → 抽取 → 综述框架 → 引用」链路对任意课题的行为，
+#   以及跑题对照课题的产物口径正确（池为空或全部带离线样例标记）；
+# - expect 为期望特征阈值，判定逻辑见 scripts/run_eval_set.py 的
+#   check_expectations()（纯函数，tests/test_eval_set.py 有单测）；
+# - 池规模阈值按各课题的确定性 lexical 基线逐课题标定（fixtures 题名结构相同，
+#   得分随课题词项重叠度变化），用于回归检测，不代表真实检索覆盖率。
+
+generated_for: 格致 SciZhi 离线评测
+offline_scope: fixtures_demo_only
+
+topics:
+  - id: rag
+    topic: "retrieval augmented generation 检索增强生成"
+    keywords: "retrieval augmented generation, RAG, knowledge grounding"
+    expect:
+      pool_min: 2        # 文献池规模 ≥ 2（lexical 基线标定值，见文件头说明）
+      anchor_min: 60     # 锚定率 ≥ 60%（池中文献被综述框架引用的比例）
+      min_rounds: 1      # 至少 1 轮递归筛选
+
+  - id: gnn
+    topic: "graph neural networks 图神经网络"
+    keywords: "graph neural networks, GNN, message passing"
+    expect:
+      pool_min: 5
+      anchor_min: 60
+      min_rounds: 1
+
+  - id: edge
+    topic: "low-power edge inference 低功耗边缘推理"
+    keywords: "low-power edge inference, model compression, tinyML"
+    expect:
+      pool_min: 5
+      anchor_min: 60
+      min_rounds: 1
+
+  - id: twin
+    topic: "digital twin manufacturing 数字孪生智能制造"
+    keywords: "digital twin, smart manufacturing, industrial IoT"
+    expect:
+      pool_min: 5
+      anchor_min: 60
+      min_rounds: 1
+
+# 跑题对照课题：与上述学术方向无关，用于验证漏斗产物口径
+# （离线 fixtures 全部为合成样例，故判定口径为「池为空或全部带离线样例标记」，
+# 如实说明：该口径验证的是产物标记正确，不代表真实检索下能滤掉不相关文献）。
+off_topic_control:
+  id: pottery
+  topic: "古陶器修复"
+  keywords: "ancient pottery restoration"
+  expect:
+    off_topic: true

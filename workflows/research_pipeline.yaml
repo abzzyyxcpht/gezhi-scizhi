@@ -1,0 +1,30 @@
+# 格致 SciZhi 科研流水线主工作流
+# 对应赛题：文献递归筛选 → 人工确认 → 信息抽取 → 综述框架 → 参考文献格式化
+name: research_pipeline
+version: 0.1.0
+description: 科研辅助全流程自动化流水线（含 HITL 检查点与节点级断点续跑）
+nodes:
+  - id: lit_filter
+    type: tool
+    action: literature_recursive_filter
+    params: {threshold: 0.18}
+    next: human_review
+  - id: human_review
+    type: human_approval
+    message: 请确认文献池：可剔除文献或修改阈值后续跑
+    next: extract
+  - id: extract
+    type: tool
+    action: extract_pool
+    params: {limit: 20}
+    next: review_frame
+  - id: review_frame
+    type: tool
+    action: build_review_frame
+    next: citation
+  - id: citation
+    type: tool
+    action: format_references
+    params: {limit: 20}
+    next: null
+checkpoint: {backend: file, granularity: node}

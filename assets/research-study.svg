@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="264" height="154" viewBox="0 0 264 154" fill="none">
+  <title>纸页与引文</title>
+  <desc>原创装饰线稿：三张错置的纸页与串联其间的引文线。</desc>
+  <path d="M22 125C64 149 183 142 240 114" stroke="#DEE5E0" stroke-width=".8"/>
+  <path d="M204 23C225 35 243 62 239 84" stroke="#C6D2CA" stroke-width=".8" stroke-dasharray="2 5"/>
+  <g transform="rotate(-17 98 85)">
+    <path d="M51 31H122L141 51V127H51V31Z" fill="#F3F4ED" stroke="#A8B3A6" stroke-width="1"/>
+    <path d="M122 31V51H141" stroke="#A8B3A6" stroke-width="1"/>
+    <path d="M65 58H108M65 65H120M65 72H113M65 104H92M65 111H108" stroke="#C2CABE" stroke-width="1"/>
+  </g>
+  <g transform="rotate(9 161 79)">
+    <path d="M123 22H181L201 43V126H123V22Z" fill="#E5EDE8" stroke="#7D998B" stroke-width="1"/>
+    <path d="M181 22V43H201M135 58H188M135 65H178M135 105H185M135 112H173" stroke="#A9BDB0" stroke-width="1"/>
+  </g>
+  <g transform="rotate(-3 134 83)">
+    <path d="M84 35H153L175 58V138H84V35Z" fill="#FFFFFF" stroke="#687D72" stroke-width="1.2"/>
+    <path d="M153 35V58H175" fill="#F4F7F5"/>
+    <path d="M153 35V58H175M99 54H136" stroke="#687D72" stroke-width="1.2"/>
+    <path d="M99 65H141M99 71H158M99 77H149M99 115H155M99 121H143" stroke="#C5CEC9" stroke-width="1"/>
+    <path d="M100 98L119 88L140 101L156 89" stroke="#286557" stroke-width="1.3" stroke-linecap="round"/>
+    <circle cx="100" cy="98" r="2.5" fill="#FFFFFF" stroke="#286557" stroke-width="1.2"/>
+    <circle cx="119" cy="88" r="2.5" fill="#286557"/>
+    <circle cx="140" cy="101" r="2.5" fill="#FFFFFF" stroke="#286557" stroke-width="1.2"/>
+    <circle cx="156" cy="89" r="2.5" fill="#286557"/>
+  </g>
+  <path d="M48 105C27 98 29 77 47 77C71 77 61 118 92 106" stroke="#286557" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M178 87C209 103 231 87 221 67C216 58 205 56 200 60" stroke="#286557" stroke-width="1.3" stroke-linecap="round"/>
+  <circle cx="220" cy="48" r="3" fill="#B99759"/>
+  <path d="M36 47V55M32 51H40" stroke="#ACBBAF" stroke-width=".8"/>
+</svg>

@@ -1,0 +1,15 @@
+name: literature_scan
+version: 0.1.0
+description: 快速检索与筛选文献，直接生成文献池和规范参考文献清单
+nodes:
+  - id: lit_filter
+    type: tool
+    action: literature_recursive_filter
+    params: {threshold: 0.18}
+    next: citation
+  - id: citation
+    type: tool
+    action: format_references
+    params: {limit: 30}
+    next: null
+checkpoint: {backend: file, granularity: node}
