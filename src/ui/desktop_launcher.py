@@ -36,6 +36,49 @@ def _imports():
     return desktop, swarm, agent_launch, config, AgentRuntime
 
 
+def _markdown_code_preview():
+    """Exercise bundled Markdown and code controls without a page or clipboard."""
+    import flet as ft
+    from src.ui.code_preview import CodePreview
+    from src.ui.markdown_view import MarkdownView
+
+    code = 'value = "证据"\nprint(value)\n'
+    source = f'Before code.\n\n```python\n{code}```\n\nAfter code.\n'
+    options = {'code_font_size': 14, 'code_show_line_numbers': True, 'code_wrap_long_lines': True}
+    view = MarkdownView(source, selectable=True, options=options, dark=False)
+    if (view.value != source or len(view.controls) != 3
+            or not isinstance(view.controls[0], ft.Markdown)
+            or not isinstance(view.controls[1], CodePreview)
+            or not isinstance(view.controls[2], ft.Markdown)):
+        raise ValueError('Markdown prose and fenced code did not produce native controls')
+    preview = view.controls[1]
+
+    def check_source():
+        displayed = [''.join(span.text for span in line.spans) for line in preview.code_lines]
+        if preview.source != code or preview.language != 'python' or displayed != code.splitlines():
+            raise ValueError('Code preview changed the source text')
+
+    check_source()
+    if ([row.controls[0].value for row in preview.rows] != ['1', '2']
+            or not all(row.controls[0].visible for row in preview.rows)
+            or any(line.no_wrap for line in preview.code_lines)):
+        raise ValueError('Code preview did not enable line numbers and wrapping')
+    button = preview.copy_button
+    if (not isinstance(button, ft.TextButton) or not callable(button.on_click)
+            or button.disabled or button.content != '复制代码'
+            or not any(item is button for item in preview.header.controls)
+            or not any(item is preview.header for item in preview.content.controls)):
+        raise ValueError('Code preview copy button is missing or unavailable')
+    view.refresh_appearance({**options, 'code_show_line_numbers': False, 'code_wrap_long_lines': False}, dark=True)
+    check_source()
+    if (any(row.controls[0].visible for row in preview.rows)
+            or not all(line.no_wrap for line in preview.code_lines)
+            or not isinstance(preview.code_body, ft.Row) or preview.code_body.scroll != ft.ScrollMode.AUTO):
+        raise ValueError('Code preview did not disable line numbers and enable horizontal scrolling')
+    return {'code_lines': len(preview.code_lines), 'source_preserved': True,
+            'line_number_toggle': True, 'wrap_toggle': True, 'copy_button': True}
+
+
 @contextmanager
 def _offline_network():
     """Block sockets in this standalone self-check process and count attempts."""
@@ -129,6 +172,7 @@ def self_check(output_path: Path | str, *, resource_root: Path | None = None,
 
                 check("version", version)
                 if check("data_isolation", isolation):
+                    check('markdown_code_preview', _markdown_code_preview)
                     runtime = runtime_type(session_root=data_root / "sessions", offline=True, llm_enabled=False)
 
                     def plan():

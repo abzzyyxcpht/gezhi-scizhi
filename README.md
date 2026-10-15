@@ -4,7 +4,7 @@
 
 SciZhi 把文献检索、证据整理、数据分析、代码执行和人工审查放在同一个本地工作台。围绕一个研究问题持续工作，保留过程、来源与产物，支持暂停、继续和复核。
 
-当前源码版本 **0.9.0**。Flet 桌面端与 OpenTUI 终端端共用 Python 运行时、会话记录和设置。公开仓库持续更新，采用 [Apache-2.0](LICENSE) 许可。本次界面更新请从源码启动，已有安装器未重新构建。
+当前源码版本 **0.10.0**。Flet 桌面端与 OpenTUI 终端端共用 Python 运行时、会话记录和设置。公开仓库持续更新，采用 [Apache-2.0](LICENSE) 许可。
 
 本轮完善了数据源失败降级、本地材料处理、取消后的审批与子任务恢复；流式回复按批次更新，代码块增加直接复制。变化与验证范围见[智能体执行与科研流程改进](docs/agent-reliability-2026-10-15.md)。
 
@@ -152,6 +152,14 @@ scripts/      启动、构建、验证与发布工具
 docs/         当前使用说明与设计记录
 ```
 
-Windows 桌面打包入口为 `scripts/build_desktop.bat`，便携源码包工具为 `scripts/build_portable.py`。桌面构建需要 Flet 0.86.5 运行资源、PyInstaller 与 NSIS，版本取自 `src/version.py`。公开 Git 仓库不包含 `dist/` 安装器或第三方运行资源。
+Windows 桌面构建需要 Flet 0.86.5 运行资源、PyInstaller 与 NSIS，版本取自 `src/version.py`。准备依赖后，在项目根目录运行：
+
+```powershell
+.\scripts\build_desktop.bat
+```
+
+构建脚本先生成桌面程序，再执行冻结程序自检并打包，本地输出为 `dist/SciZhi-Agent-Setup-0.10.0.exe`，同时生成 SHA-256 校验文件与自检报告。安装包使用新图标和带版本的快捷方式图标资源；卸载按安装文件清单删除，保留用户额外放入的文件，遇到路径被替换为链接时停止卸载。0.10.0 已在 Windows 完成隔离安装、4915 个文件哈希核对、42 项安装后自检、原生窗口检查和卸载保留额外文件验证。
+
+便携源码包工具为 `scripts/build_portable.py`。公开 Git 仓库不包含 `dist/` 安装器或第三方运行资源。
 
 欢迎通过 [Issues](https://github.com/abzzyyxcpht/gezhi-scizhi/issues) 提供复现步骤，通过 Pull Request 提交改进。贡献规则见 [CONTRIBUTING.md](CONTRIBUTING.md)，安全问题见 [SECURITY.md](SECURITY.md)。第三方依赖保留各自许可。

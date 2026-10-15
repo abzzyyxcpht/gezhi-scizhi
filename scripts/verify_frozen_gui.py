@@ -57,12 +57,12 @@ def main():
     callback_type = ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
     user32.EnumWindows.argtypes = [callback_type, wt.LPARAM]
     user32.ShowWindow.argtypes = [wt.HWND, ctypes.c_int]
-    user32.SetForegroundWindow.argtypes = [wt.HWND]
-    user32.GetForegroundWindow.restype = wt.HWND
     proc = subprocess.Popen([str(exe)], cwd=stage, env=env, creationflags=subprocess.CREATE_NO_WINDOW)
     process = psutil.Process(proc.pid)
     children, handle = [], 0
-    report = {'ok': False, 'exe': str(exe), 'data_isolated': True, 'uses_bundled_client': True}
+    report = {'ok': False, 'exe': str(exe), 'data_isolated': True, 'uses_bundled_client': True,
+              'stage': str(stage), 'launched_pid': proc.pid,
+              'verification_scope': 'owned_window_capture_only', 'ui_visual_review': 'required'}
     start = time.monotonic()
     try:
         while time.monotonic() - start < 40 and not handle:
@@ -90,28 +90,29 @@ def main():
             raise RuntimeError('No owned application window within 40 seconds')
         report['window_appeared_seconds'] = round(time.monotonic() - start, 3)
         user32.ShowWindow(handle, 9)
-        user32.SetWindowPos.argtypes = [wt.HWND, wt.HWND, ctypes.c_int, ctypes.c_int,
-                                       ctypes.c_int, ctypes.c_int, wt.UINT]
-        user32.AttachThreadInput.argtypes = [wt.DWORD, wt.DWORD, wt.BOOL]
-        current_thread = ctypes.windll.kernel32.GetCurrentThreadId()
-        foreground_thread = user32.GetWindowThreadProcessId(user32.GetForegroundWindow(), None)
-        attached = user32.AttachThreadInput(current_thread, foreground_thread, True)
-        try:
-            # Activate only the owned application; capture still refuses any
-            # unrelated foreground window below.
-            user32.SetWindowPos(handle, wt.HWND(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)
-            user32.SetForegroundWindow(handle)
-        finally:
-            if attached:
-                user32.AttachThreadInput(current_thread, foreground_thread, False)
-        time.sleep(3)
-        if int(user32.GetForegroundWindow() or 0) != handle:
-            raise RuntimeError('Owned window is not foreground; refusing capture')
+        time.sleep(6)
+        # Pillow's HWND capture targets this window directly and does not need
+        # foreground activation. Revalidate ownership immediately before capture
+        # in case the original window was closed or its handle was recycled.
+        children = process.children(recursive=True)
+        owned = {proc.pid, *(child.pid for child in children)}
+        owner = wt.DWORD()
+        user32.GetWindowThreadProcessId(handle, ctypes.byref(owner))
+        if proc.poll() is not None or owner.value not in owned or not user32.IsWindowVisible(handle):
+            raise RuntimeError('Application window ownership changed; refusing capture')
+        title = ctypes.create_unicode_buffer(user32.GetWindowTextLengthW(handle) + 1)
+        user32.GetWindowTextW(handle, title, len(title))
+        if 'SciZhi' not in title.value:
+            raise RuntimeError('Application window title changed; refusing capture')
+        report.update(window_pid=owner.value, window_title=title.value,
+                      capture_method='Pillow ImageGrab.grab(window=owned_hwnd)')
         shot = ImageGrab.grab(window=handle)
         if min(shot.size) < 300 or max(ImageStat.Stat(shot).stddev) < 4:
             raise RuntimeError('Application window is blank or too small')
         shot.save(output / 'frozen-window.png')
-        report.update(ok=True, size=list(shot.size), screenshot='frozen-window.png')
+        # This confirms a capture was produced, not that the UI is correct.
+        # A reviewer must inspect frozen-window.png for the actual interface.
+        report.update(ok=True, capture_ok=True, size=list(shot.size), screenshot='frozen-window.png')
     except Exception as exc:
         report['error'] = f'{type(exc).__name__}: {exc}'
     finally:

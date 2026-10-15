@@ -66,12 +66,34 @@ raise SystemExit(self_check(Path(sys.argv[1]), resource_root=Path(sys.argv[2]), 
             self.assertTrue(checks["runtime_plan"]["ok"])
             self.assertTrue(checks["swarm_plan_cancel"]["ok"])
             for name in ('session_event_projection', 'session_status_compact', 'network_isolation',
-                         'product_readiness', 'product_demo_offline', 'pdf_backend', 'experimental_defaults', 'experimental_queue', 'experimental_steering', 'evidence_review_inbox', 'history_index', 'composer_drafts', 'tool_outputs', 'shell_owned_execution', 'shell_stream_capture', 'interaction_controls'):
+                         'product_readiness', 'product_demo_offline', 'pdf_backend', 'markdown_code_preview', 'experimental_defaults', 'experimental_queue', 'experimental_steering', 'evidence_review_inbox', 'history_index', 'composer_drafts', 'tool_outputs', 'shell_owned_execution', 'shell_stream_capture', 'interaction_controls'):
                 self.assertIn(name, checks)
                 self.assertTrue(checks[name]['ok'])
             self.assertEqual(report["version"], APP_VERSION)
             self.assertEqual(list(user_data.iterdir()), [sentinel])
             self.assertEqual(sentinel.read_text(encoding="utf-8"), '{"fixture": "must not be read or modified"}')
+
+    def test_markdown_preview_check_uses_explicit_settings_and_no_clipboard(self):
+        operation = getattr(desktop_launcher, '_markdown_code_preview', None)
+        self.assertTrue(callable(operation), 'Missing executable Markdown/code preview check')
+        with mock.patch('src.settings.load', side_effect=AssertionError('Unexpected settings read')), \
+                mock.patch('flet.Clipboard.set', side_effect=AssertionError('Unexpected clipboard access')) as clipboard:
+            self.assertEqual(operation()['code_lines'], 2)
+        clipboard.assert_not_called()
+
+    def test_markdown_preview_check_rejects_a_missing_copy_button(self):
+        from src.ui.code_preview import CodePreview
+        operation = getattr(desktop_launcher, '_markdown_code_preview', None)
+        self.assertTrue(callable(operation), 'Missing executable Markdown/code preview check')
+        refresh = CodePreview.refresh
+
+        def without_copy_button(preview, *args, **kwargs):
+            refresh(preview, *args, **kwargs)
+            preview.header.controls.remove(preview.copy_button)
+
+        with mock.patch.object(CodePreview, 'refresh', without_copy_button):
+            with self.assertRaisesRegex(ValueError, 'copy button'):
+                operation()
 
     def test_missing_resources_are_reported_and_exit_nonzero(self):
         with tempfile.TemporaryDirectory() as directory:

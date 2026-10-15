@@ -9,7 +9,7 @@ import hashlib
 import json
 import os
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -18,9 +18,66 @@ from src.version import APP_VERSION as APP_VER  # noqa: E402 -- direct script en
 
 REQUIRED_SELF_CHECKS = frozenset({'imports', 'version', 'data_isolation', 'runtime_plan',
     'swarm_plan_cancel', 'frozen_desktop_client', 'session_event_projection',
-    'session_status_compact', 'network_isolation', 'product_readiness', 'product_demo_offline', 'pdf_backend',
+    'session_status_compact', 'network_isolation', 'product_readiness', 'product_demo_offline', 'pdf_backend', 'markdown_code_preview',
     'experimental_defaults', 'experimental_queue', 'experimental_steering', 'evidence_review_inbox', 'history_index',
     'composer_drafts', 'tool_outputs', 'shell_owned_execution', 'shell_stream_capture', 'interaction_controls'})
+
+
+def _nsis_relative(value: str) -> str:
+    """Quote a literal path; the manifest sets $R9 to a literal dollar sign."""
+    relative = PureWindowsPath(value)
+    if (relative.drive or relative.root or not relative.parts
+            or any(part in {'.', '..'} or part.endswith((' ', '.')) for part in relative.parts)
+            or any(ord(char) < 32 or char in ':*?<>|' for char in value)):
+        raise ValueError(f'Unsafe application-relative path: {value!r}')
+    # $$ alone does not protect ${...} from NSIS's earlier preprocessor pass.
+    return str(relative).replace('$', '$R9').replace('"', '$\\"')
+
+
+def _application_paths(app: Path) -> tuple[list[str], list[tuple[int, str]]]:
+    """Inventory ordinary paths without following links outside the application."""
+    if app.is_symlink() or app.is_junction():
+        raise ValueError('Application root cannot be a link')
+    root = app.resolve(strict=True)
+    files, directories = [], []
+    for folder, names, filenames in os.walk(root, followlinks=False):
+        for name in (*names, *filenames):
+            path = Path(folder) / name
+            if path.is_symlink() or path.is_junction() or not path.resolve().is_relative_to(root):
+                raise ValueError(f'Application path is a link or outside the application: {path}')
+            relative = path.relative_to(root)
+            escaped = _nsis_relative(str(relative))
+            if path.is_dir():
+                directories.append((len(relative.parts), escaped))
+            elif path.is_file():
+                files.append(escaped)
+            else:
+                raise ValueError(f'Application path is not a regular file or directory: {path}')
+    return files, directories
+
+
+def _uninstall_manifest(app: Path) -> str:
+    """Remove only bundled files; unknown files keep their parent directories."""
+    files, directories = _application_paths(app)
+    lines = ['; Generated from the staged application. Never recursively delete user files.',
+             'Push $R9', 'StrCpy $R9 "$$"']
+    lines.extend(f'Delete "$INSTDIR\\{relative}"' for relative in sorted(files))
+    lines.extend(f'RMDir "$INSTDIR\\{relative}"' for _, relative in sorted(directories, reverse=True))
+    lines.append('Pop $R9')
+    return '\n'.join(lines) + '\n'
+
+
+def _uninstall_preflight(app: Path) -> str:
+    """Check parent directories first, so a swapped junction is never followed."""
+    files, directories = _application_paths(app)
+    targets = ['', *(relative for _, relative in sorted(directories)), *sorted(files)]
+    lines = ['; Refuse changed links before touching installation or global entries.',
+             'Push $R9', 'StrCpy $R9 "$$"']
+    for relative in targets:
+        target = '$INSTDIR' + ('\\' + relative if relative else '')
+        lines.extend((f'Push "{target}"', 'Call un.AssertPlainPath'))
+    lines.append('Pop $R9')
+    return '\n'.join(lines) + '\n'
 
 
 def _validated_check(path: Path) -> dict:
@@ -58,7 +115,10 @@ def main(argv: list[str] | None = None) -> int:
         stage = Path(owned)
         if not str(stage).isascii():
             raise SystemExit('NSIS requires an ASCII temporary directory; configure TEMP before packaging')
+        _uninstall_manifest(app)  # Reject linked/escaping source paths before copying their contents.
         shutil.copytree(app, stage / "app")
+        (stage / 'uninstall-files.nsh').write_text(_uninstall_manifest(stage / 'app'), encoding='utf-8')
+        (stage / 'uninstall-preflight.nsh').write_text(_uninstall_preflight(stage / 'app'), encoding='utf-8')
         shutil.copy2(ROOT / "assets" / "gezhi.ico", stage / "gezhi.ico")
         shutil.copy2(ROOT / "packaging" / "gezhi.nsi", stage / "gezhi.nsi")
         report_path = stage / 'frozen-self-check.json'

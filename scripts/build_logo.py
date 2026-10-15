@@ -2,12 +2,14 @@
 """Build the SciZhi identity from shared, font-independent vector geometry.
 
 Run ``python scripts/build_logo.py`` to regenerate the SVG, 512 px PNG,
-seven-size Windows ICO, transparent wordmark, and light/dark preview sheet.
+ten-size Windows ICO, and transparent wordmark. Review sheets and individual
+ICO frames are written to ``build/icon-review``.
 Only Pillow is required. Fonts are used for the wordmark and preview labels;
 the app icon is made entirely from the geometry below.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -15,8 +17,9 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
 ASSETS = ROOT / "assets"
+REVIEW = ROOT / "build" / "icon-review"
 SIZE = 512
-ICO_SIZES = (16, 24, 32, 48, 64, 128, 256)
+ICO_SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
 
 FOREST = "#286557"
 WHITE = "#FFFFFF"
@@ -34,6 +37,73 @@ LEFT_PAGE = ((112, 160), (204, 176), (240, 196),
 RIGHT_PAGE = ((272, 196), (306, 178), (340, 172), (340, 212),
               (400, 194), (400, 320), (308, 336), (272, 356))
 RESEARCH_POINT = (384, 140, 22)
+
+
+@dataclass(frozen=True)
+class IconGeometry:
+    """Coordinates in the target image's pixels, before supersampling."""
+
+    field: tuple[float, float, float, float]
+    corner: float
+    left: tuple[tuple[float, float], ...]
+    right: tuple[tuple[float, float], ...]
+    point: tuple[float, float, float]
+
+
+# Native-size optical masters. Integer vertical edges keep the page silhouettes
+# and spine crisp; the smallest research dots are enlarged to remain distinct.
+# These deliberately differ from simply shrinking the 512-unit brand master.
+OPTICAL_MASTERS = {
+    16: IconGeometry(
+        (1, 1, 15, 15), 3,
+        ((3, 5), (5.5, 5.5), (7, 6.25), (7, 11.5), (5.5, 10.75), (3, 10.25)),
+        ((8, 6.25), (9.25, 5.5), (10.5, 5.25), (10.5, 7),
+         (13, 6.25), (13, 10.25), (9.5, 10.75), (8, 11.5)),
+        (12, 4, 1),
+    ),
+    20: IconGeometry(
+        (1, 1, 19, 19), 4,
+        ((4, 6.25), (7.5, 6.875), (9, 7.75), (9, 14), (7.25, 13.25), (4, 12.5)),
+        ((11, 7.75), (12, 7), (13, 6.75), (13, 8.5),
+         (16, 7.5), (16, 12.5), (12.5, 13.25), (11, 14)),
+        (15, 5.25, 1.1),
+    ),
+    24: IconGeometry(
+        (1, 1, 23, 23), 5,
+        ((5, 7.5), (9.5, 8.25), (11, 9.25), (11, 17), (9.5, 16), (5, 15)),
+        ((13, 9.25), (14.25, 8.5), (16, 8), (16, 10),
+         (19, 9.25), (19, 15), (14.5, 16), (13, 17)),
+        (18, 6.5, 1.25),
+    ),
+    32: IconGeometry(
+        (2, 2, 30, 30), 6.5,
+        ((7, 10), (12.75, 11), (15, 12.25), (15, 22.25), (12.75, 21), (7, 20)),
+        ((17, 12.25), (19, 11), (21, 10.75), (21, 13.25),
+         (25, 12.25), (25, 20), (19.25, 21), (17, 22.25)),
+        (24, 8.75, 1.5),
+    ),
+    40: IconGeometry(
+        (2, 2, 38, 38), 8,
+        ((9, 12.5), (16, 13.75), (19, 15.25), (19, 28), (16, 26.25), (9, 25)),
+        ((21, 15.25), (24, 13.875), (27, 13.5), (27, 16.75),
+         (31, 15.25), (31, 25), (24, 26.25), (21, 28)),
+        (30, 11, 1.75),
+    ),
+    48: IconGeometry(
+        (2, 2, 46, 46), 10,
+        ((10, 15), (19, 16.5), (22, 18.25), (22, 33.5), (19, 31.5), (10, 30)),
+        ((26, 18.25), (28.75, 16.75), (32, 16), (32, 20),
+         (38, 18), (38, 30), (29, 31.5), (26, 33.5)),
+        (36, 13, 2.25),
+    ),
+    64: IconGeometry(
+        (3, 3, 61, 61), 13,
+        ((14, 20), (25.5, 22), (30, 24.5), (30, 44.5), (25.5, 42), (14, 40)),
+        ((34, 24.5), (38.25, 22.25), (42, 21.5), (42, 26.5),
+         (50, 24.25), (50, 40), (38.5, 42), (34, 44.5)),
+        (48, 17.5, 3),
+    ),
+}
 
 FONT_DIRS = (
     Path(r"C:\Windows\Fonts"),
@@ -61,24 +131,36 @@ def font(candidates: tuple[str, ...], px: int) -> ImageFont.FreeTypeFont:
 
 
 def draw_icon(px: int = SIZE) -> Image.Image:
-    """Render the canonical geometry with transparent rounded corners."""
-    render_size = max(1024, px * 4)
-    scale = render_size / SIZE
+    """Render the optical master when available, retaining real alpha edges."""
+    scale = 8 if px <= 128 else 4
+    render_size = px * scale
+    geometry = OPTICAL_MASTERS.get(px)
+    if geometry is None:
+        ratio = px / SIZE
+        geometry = IconGeometry(
+            tuple(value * ratio for value in FIELD),
+            CORNER_RADIUS * ratio,
+            tuple((x * ratio, y * ratio) for x, y in LEFT_PAGE),
+            tuple((x * ratio, y * ratio) for x, y in RIGHT_PAGE),
+            tuple(value * ratio for value in RESEARCH_POINT),
+        )
     canvas = Image.new("RGBA", (render_size, render_size))
     draw = ImageDraw.Draw(canvas)
-    bounds = tuple(value * scale for value in FIELD)
+    bounds = tuple(value * scale for value in geometry.field)
     # Pillow's rectangle includes the last pixel; SVG's width does not.
     draw.rounded_rectangle(
         (bounds[0], bounds[1], bounds[2] - 1, bounds[3] - 1),
-        radius=CORNER_RADIUS * scale,
+        radius=geometry.corner * scale,
         fill=FOREST,
     )
-    for page in (LEFT_PAGE, RIGHT_PAGE):
-        draw.polygon([(x * scale, y * scale) for x, y in page], fill=WHITE)
-    cx, cy, radius = RESEARCH_POINT
+    for page in (geometry.left, geometry.right):
+        # Pillow includes boundary pixels; the half-pixel offset centers its
+        # coverage on the vector edge instead of thickening the right edge.
+        draw.polygon([(x * scale - 0.5, y * scale - 0.5) for x, y in page], fill=WHITE)
+    cx, cy, radius = geometry.point
     draw.ellipse(
         ((cx - radius) * scale, (cy - radius) * scale,
-         (cx + radius) * scale, (cy + radius) * scale),
+         (cx + radius) * scale - 1, (cy + radius) * scale - 1),
         fill=WHITE,
     )
     return canvas.resize((px, px), Image.Resampling.LANCZOS)
@@ -169,20 +251,49 @@ def draw_preview() -> Image.Image:
     return canvas
 
 
+def draw_size_preview() -> Image.Image:
+    """Show every embedded Windows frame at its actual pixel size."""
+    canvas = Image.new("RGB", (1360, 760), PAPER)
+    draw = ImageDraw.Draw(canvas)
+    label = font(LABEL_FONTS, 16)
+    draw.text((40, 28), "SciZhi / Windows icon sizes at 100%", font=font(LATIN_FONTS, 28), fill=INK)
+    for y, background, foreground, surface in (
+        (96, WHITE, INK, "LIGHT"),
+        (416, NIGHT, WHITE, "DARK"),
+    ):
+        draw.rounded_rectangle((24, y, 1336, y + 304), radius=20, fill=background)
+        draw.text((48, y + 18), surface, font=label, fill=foreground)
+        x = 80
+        for size in ICO_SIZES:
+            icon = draw_icon(size)
+            canvas.paste(icon, (x, y + 146 - size // 2), icon)
+            caption = f"{size} px"
+            width = draw.textlength(caption, font=label)
+            draw.text((x + (size - width) / 2, y + 280), caption, font=label, fill=foreground)
+            x += size + 48
+    return canvas
+
+
 def main() -> None:
     ASSETS.mkdir(parents=True, exist_ok=True)
+    REVIEW.mkdir(parents=True, exist_ok=True)
     (ASSETS / "gezhi.svg").write_text(svg_source(), encoding="utf-8")
     draw_icon().save(ASSETS / "gezhi.png")
-    # Every frame is rendered from the same geometry, including 16 and 24 px.
+    # Pass each independently rendered frame: Pillow must not scale one frame
+    # into the others and lose the native-size optical adjustments.
     frames = [draw_icon(size) for size in ICO_SIZES]
     frames[-1].save(
         ASSETS / "gezhi.ico", sizes=[(size, size) for size in ICO_SIZES],
         append_images=frames[:-1],
     )
     draw_wordmark().save(ASSETS / "gezhi-wordmark.png")
-    draw_preview().save(ASSETS / "brand-preview.png")
-    for name in ("gezhi.svg", "gezhi.png", "gezhi.ico", "gezhi-wordmark.png", "brand-preview.png"):
+    for size, frame in zip(ICO_SIZES, frames):
+        frame.save(REVIEW / f"icon-{size}.png")
+    draw_preview().save(REVIEW / "brand-preview.png")
+    draw_size_preview().save(REVIEW / "windows-icon-sizes.png")
+    for name in ("gezhi.svg", "gezhi.png", "gezhi.ico", "gezhi-wordmark.png"):
         print(f"Generated assets/{name}")
+    print("Generated review sheets and native frames in build/icon-review")
 
 
 if __name__ == "__main__":
