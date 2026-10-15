@@ -30,6 +30,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parent.parent
 SCREENS = {"home": "新任务", "agent": "智能体", "monitor": "研究进度", "notebook": "研究记录",
+           'settings-code': '设置', 'navigation-drawer': '智能体', 'project-code': '项目',
            "general-workspace": "智能体", "research-mode": "智能体", "mode-commands": "智能体",
            "model-control": "智能体", "activity-tree": "智能体", "command-search": "新任务",
            "steer-pending": "智能体",
@@ -104,6 +105,17 @@ async def click_text(page, text: str) -> None:
         if inspect.isawaitable(result):
             await result
         return
+    drawer = getattr(page, 'drawer', None)
+    for index, destination in enumerate(getattr(drawer, 'controls', []) or []):
+        if getattr(destination, 'label', None) != text:
+            continue
+        # Exercise the same native drawer callbacks used below the docked breakpoint.
+        await page.show_drawer()
+        drawer.selected_index = index
+        result = drawer.on_change(SimpleNamespace(control=drawer, page=page, data=None))
+        if inspect.isawaitable(result):
+            await result
+        return
     raise RuntimeError(f"No clickable control contains exact text: {text}")
 
 
@@ -114,6 +126,21 @@ def set_field(page, label: str, value: str) -> None:
         raise RuntimeError(f"No visible input has label: {label}")
     control.value = value
     page.update()
+
+
+async def navigate(page, label: str) -> None:
+    """Select a navigation destination, not a toolbar sharing the same tooltip."""
+    drawer = getattr(page, 'drawer', None)
+    for index, destination in enumerate(getattr(drawer, 'controls', []) or []):
+        if getattr(destination, 'label', None) == label:
+            await page.show_drawer()
+            await asyncio.sleep(.35)  # Let the native drawer mount before selecting its destination.
+            drawer.selected_index = index
+            result = drawer.on_change(SimpleNamespace(control=drawer, page=page, data=None))
+            if inspect.isawaitable(result):
+                await result
+            return
+    await click_text(page, label)
 
 
 def has_text(page, text: str) -> bool:
@@ -806,10 +833,10 @@ async def prepare_state(page, screen: str, data_dir: Path, *, ui: dict | None = 
         return {"control_tower": True, "source": "isolated offline fixtures", "no_model_request": True}
     if screen.startswith('project-'):
         from src.ui.project_studio import SECTIONS
-        view = screen.removeprefix('project-')
+        view = 'files' if screen == 'project-code' else screen.removeprefix('project-')
         await click_text(page, SECTIONS[view])
-        if screen == 'project-files':
-            await click_text(page, '研究方案.md')
+        if screen in {'project-files', 'project-code'}:
+            await click_text(page, 'analysis.py' if screen == 'project-code' else '研究方案.md')
         await asyncio.sleep(.7)
         return {'project_fixture': True, 'view': view, 'no_model_request':True}
     if screen in {'chat-history', 'chat-search', 'chat-input', 'chat-rewind'}:
@@ -852,9 +879,12 @@ async def prepare_state(page, screen: str, data_dir: Path, *, ui: dict | None = 
         if screen == 'chat-side':
             await click_text(page, '侧边讨论')
         return {'markdown_preview':True,'side_chat':screen=='chat-side','no_model_request':True}
+    if screen == 'navigation-drawer':
+        await page.show_drawer()
+        return {'navigation_drawer': True, 'no_model_request': True}
     category = None
     if screen.startswith("settings-") and screen != "settings-features":
-        category = screen.removeprefix("settings-")
+        category = 'appearance' if screen == 'settings-code' else screen.removeprefix("settings-")
     elif screen.startswith("model-"):
         category = "usage" if screen == "model-usage" else "models"
     elif screen == "skills-manager":
@@ -868,6 +898,16 @@ async def prepare_state(page, screen: str, data_dir: Path, *, ui: dict | None = 
         else:
             await click_text(page, next(label for key, label, _ in CATEGORIES if key == category))
         await asyncio.sleep(.3)
+        if screen == 'settings-appearance':
+            column = next(c for c in walk_controls(page) if type(c).__name__ == 'Column'
+                and getattr(c, 'scroll', None) and any(getattr(child, '_scizhi_code_preview', False)
+                    for child in walk_controls(c)))
+            await column.scroll_to(offset=0, duration=0)
+        if screen == 'settings-code':
+            column = next(c for c in walk_controls(page) if type(c).__name__ == 'Column'
+                and getattr(c, 'scroll', None) and any(getattr(child, '_scizhi_code_preview', False)
+                    for child in walk_controls(c)))
+            await column.scroll_to(offset=760, duration=0)
         if screen.startswith("settings-") or screen in {"skills-manager", "model-usage"}:
             return {"settings_category": category, "no_model_request": True}
     if screen == "research-audit":
@@ -1015,6 +1055,8 @@ def main() -> int:
                         help='Theme for this isolated screenshot fixture')
     parser.add_argument('--font-scale', type=float, choices=[.9, 1.0, 1.1, 1.2], default=1.0,
                         help='Reading scale for this isolated screenshot fixture')
+    parser.add_argument('--ui-font-size', type=int, choices=range(12, 21), default=None,
+                        help='Canonical interface size; code and terminal remain independent')
     args = parser.parse_args()
     if sys.platform != "win32":
         parser.error("This native HWND capture helper supports Windows only")
@@ -1051,6 +1093,8 @@ def main() -> int:
     from src import settings
     settings.save({"enable_crossref": False, 'appearance_dark_mode': args.theme == 'dark',
                    'appearance_font_scale': args.font_scale})
+    if args.ui_font_size is not None:
+        settings.save({'ui_font_size': args.ui_font_size})
     demo = run_demo(DEMO_TOPIC, out_dir=data_dir / "exports" / "fixture", offline=True)
     from src.research_notebook import handle as notebook
     notebook({"cmd": "notebook_save", "record": {"kind": "hypothesis", "title": "反例检索能否减少综述中的过度归因？",
@@ -1068,6 +1112,7 @@ def main() -> int:
         (folder/'研究方案.md').write_text('# 反例检索与综述可靠性\n\n## 待验证问题\n显式寻找反驳材料，是否减少过度归因？\n\n## 对照设置\n- 固定文献池、模型与预算\n- 由研究者独立盲评\n- 保留未成功的实验\n\n> 这是界面验收材料，不是真实实验结果。',encoding='utf-8')
         (folder/'analysis.py').write_text('def coverage(found, expected):\n    return len(found & expected) / max(1, len(expected))\n',encoding='utf-8')
         p = project({'cmd':'project_open','path':str(folder),'name':'综述可靠性 · 验收项目'})['project']
+        project({'cmd':'project_update','project_id':p['id'],'view':'split'})
         project({'cmd':'project_select','project_id':p['id']})
         for title, status in [('整理支持与反驳证据','done'),('冻结对照实验的评估口径','doing'),('检查随机种子与样本划分','todo')]:
             planning({'cmd':'todo_save','todo':{'project_id':p['id'],'title':title,'status':status,'priority':'normal','task_id':demo['task_id']}})
@@ -1126,7 +1171,7 @@ def main() -> int:
                         await close_own_dialogs(page)
                         if screen in {"monitor", "results", "research-audit"}:
                             await click_text(page, DEMO_TOPIC)
-                        await click_text(page, SCREENS[screen])
+                        await navigate(page, SCREENS[screen])
                         await asyncio.sleep(.35)
                         interaction = await prepare_state(page, screen, data_dir, ui=ui)
                         await asyncio.sleep(args.settle)

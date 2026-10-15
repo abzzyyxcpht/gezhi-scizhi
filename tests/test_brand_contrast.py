@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import unittest
 
+import flet as ft
+
 from src.ui import brand
-from src.ui.theme import DARK
+from src.ui.theme import DARK, palette, repaint
 
 
 def _lum(hex_color: str) -> float:
@@ -48,13 +50,20 @@ TINTED_LABELS = (
 class PaletteContrastTest(unittest.TestCase):
     def _run_shared_bars(self, label: str, p: dict[str, str]) -> None:
         where = f"[{label}]"
-        surfaces = (p["BG"], p["SURFACE"], p["SURFACE_2"], p["SURFACE_3"])
+        surfaces = tuple(p[name] for name in
+                         ("BG", "SURFACE", "SURFACE_2", "SURFACE_3", "CARD", "MENU", "POPOVER", "INPUT"))
         for bg in surfaces:
             self.assertGreaterEqual(contrast(p["TEXT"], bg), 7.0, f"{where} 主文本/ {bg}")
             self.assertGreaterEqual(contrast(p["TEXT_2"], bg), 4.5, f"{where} 次级文本/ {bg}")
             self.assertGreaterEqual(contrast(p["TEXT_3"], bg), 3.0, f"{where} 提示文本/ {bg}")
         self.assertGreaterEqual(contrast(p["ON_ACCENT"], p["ACCENT"]), 4.5,
                                 f"{where} 实心按钮白字")
+        self.assertGreaterEqual(contrast(p["ON_PRIMARY"], p["PRIMARY"]), 4.5,
+                                f"{where} 主操作按钮")
+        self.assertGreaterEqual(contrast(p["TEXT"], p["SELECTED"]), 7,
+                                f"{where} 选中项正文")
+        self.assertGreaterEqual(contrast(p["BORDER_2"], p["INPUT"]), 3,
+                                f"{where} 输入边界")
         for name in ("SUCCESS", "WARN", "DANGER", "INFO", "ACCENT_TEXT"):
             self.assertGreaterEqual(contrast(p[name], p["SURFACE"]), 4.5,
                                     f"{where} 语义文字/ {name}")
@@ -88,19 +97,21 @@ class PaletteContrastTest(unittest.TestCase):
     def test_palettes_cover_the_same_names(self):
         self.assertEqual(set(PALETTES["light"]), set(PALETTES["dark"]))
 
-    def test_no_cross_theme_value_collisions(self):
-        """repaint 按值重映射：深色值若等于另一浅色角色的值，深色控件会被错映射。
-
-        已登记例外：#FFFFFF——repaint 的 _WHITE 特例明确区分「白底→INPUT」与
-        「白字保持白」；同角色同值（ACCENT 两板同为 blue-600）是恒等映射，无害。
-        """
-        light, dark = PALETTES["light"], PALETTES["dark"]
-        for name, value in dark.items():
-            if value == "#FFFFFF":
-                continue
-            for other, light_value in light.items():
-                if other != name and light_value == value:
-                    self.fail(f"深色 {name}={value} 与浅色 {other} 同值，repaint 会错映射")
+    def test_every_color_role_survives_collisions_and_theme_round_trips(self):
+        """Equal hex values cannot substitute for semantic roles during repaint."""
+        original = palette.dark
+        try:
+            palette.set_dark(False)
+            labels = {name: ft.Text(name, color=palette.value(name)) for name in DARK}
+            surfaces = {name: ft.Container(bgcolor=palette.value(name)) for name in DARK}
+            for dark in (True, True, False, True, False):
+                palette.set_dark(dark)
+                repaint(*labels.values(), *surfaces.values())
+                for name in DARK:
+                    self.assertEqual(labels[name].color, palette.value(name), name)
+                    self.assertEqual(surfaces[name].bgcolor, palette.value(name), name)
+        finally:
+            palette.set_dark(original)
 
     def test_accent_fill_and_text_are_separate_grades(self):
         """填充级 ACCENT 供按钮底/描边，文字级 ACCENT_TEXT 供暗底文字，两级不混用。"""

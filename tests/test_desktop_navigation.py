@@ -79,7 +79,7 @@ class DesktopNavigationTest(unittest.TestCase):
             # 的双板 bar 与 test_dynamic_theme 的取值断言覆盖）。
             mock.patch.object(desktop.app_settings, "load",
                               side_effect=lambda: {**real_settings_load(),
-                                                   "appearance_dark_mode": False}),
+                                                   "appearance_dark_mode": False, "theme_mode": "light"}),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)

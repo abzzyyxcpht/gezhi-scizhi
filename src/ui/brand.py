@@ -19,11 +19,17 @@ SURFACE = "#FFFFFF"     # 工作面
 SURFACE_2 = "#F5F5F5"   # 次级分组
 SURFACE_3 = "#EBEBEB"   # 表头、轻量标签
 INPUT = "#FFFFFF"
+CARD = "#FFFFFF"
+MENU = "#FFFFFF"
+POPOVER = "#FFFFFF"
+SELECTED = "#ECECEE"
+PRIMARY = "#000000"
+ON_PRIMARY = "#FFFFFF"
 BORDER = "#E5E5E5"
 # 输入框描边：白底上 ≥3:1（#A3A3A3 仅 2.52，输入边界在白卡上糊掉）
 BORDER_2 = "#8A8A8A"
 HOVER = "#E8ECEE"
-ACTIVE = "#E5EEEA"
+ACTIVE = "#EBF4FF"
 TEXT = "#171717"
 TEXT_2 = "#525252"
 TEXT_3 = "#737373"
@@ -39,6 +45,34 @@ SUCCESS_BG = "#E8F1EA"
 WARN_BG = "#F6EFDF"
 DANGER_BG = "#F9EAE8"
 INFO_BG = "#EAF0F5"
+
+
+class SemanticColor(str):
+    """A normal serializable color string which retains its design role.
+
+    White inputs, cards and primary labels share a hex value in light mode,
+    but must become different colors in dark mode.  Preserve that meaning
+    through Flet controls instead of trying to reverse-engineer it from hex.
+    """
+
+    def __new__(cls, value: str, role: str = ""):
+        color = super().__new__(cls, value)
+        color.role = role
+        return color
+
+    def __reduce__(self):
+        return type(self), (str(self), self.role)
+
+
+COLOR_ROLES = (
+    "BG", "SURFACE", "SURFACE_2", "SURFACE_3", "INPUT", "CARD", "MENU",
+    "POPOVER", "SELECTED", "PRIMARY", "ON_PRIMARY", "BORDER", "BORDER_2",
+    "HOVER", "ACTIVE", "TEXT", "TEXT_2", "TEXT_3", "ACCENT", "ACCENT_TEXT",
+    "ON_ACCENT", "SUCCESS", "WARN", "DANGER", "INFO", "ACCENT_BG",
+    "SUCCESS_BG", "WARN_BG", "DANGER_BG", "INFO_BG",
+)
+for _role in COLOR_ROLES:
+    globals()[_role] = SemanticColor(globals()[_role], _role)
 
 QUOTE = "致知在格物，物格而后知至。——《礼记·大学》"
 SLOGAN = "格物致知，智启科研"

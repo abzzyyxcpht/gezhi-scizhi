@@ -15,8 +15,9 @@ export function contentWidthForTerminal(terminalWidth, { sidebarVisible = false,
 }
 
 /** 侧栏三态布局（对齐 ZCode sidebarLayoutForTerminal） */
-export function sidebarLayoutForTerminal(terminalWidth, { userHidden = false } = {}) {
-  if (userHidden) return "hidden"
+export function sidebarLayoutForTerminal(terminalWidth, { userHidden = false, mode = "docked" } = {}) {
+  if (userHidden || mode === "hidden") return "hidden"
+  if (mode === "overlay") return "overlay"
   if (terminalWidth >= WIDE_BREAKPOINT) return "docked"
   return "overlay"
 }

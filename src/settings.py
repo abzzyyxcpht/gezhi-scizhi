@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from .config import DATA_DIR
+from .ui_preferences import DEFAULTS as UI_DEFAULTS, normalize as normalize_ui, migrated_patch, validate as validate_ui
 
 _PATH = DATA_DIR / "settings.json"
 _LOCK = threading.RLock()
@@ -101,6 +102,7 @@ _DEFAULTS: dict[str, Any] = {
     "appearance_dark_mode": True,
 }
 
+_DEFAULTS.update(UI_DEFAULTS)
 BOOLEAN_SETTINGS = {key for key, value in _DEFAULTS.items() if isinstance(value, bool)}
 
 
@@ -112,7 +114,7 @@ def load() -> dict[str, Any]:
             try:
                 data = json.loads(_PATH.read_text(encoding="utf-8"))
                 if isinstance(data, dict):
-                    return {**defaults, **data}
+                    return {**defaults, **normalize_ui(data)}
             except (json.JSONDecodeError, OSError):
                 pass
         return defaults
@@ -132,6 +134,7 @@ def public_settings() -> dict[str, Any]:
 def _validate(values: dict[str, Any]) -> None:
     if not isinstance(values, dict):
         raise ValueError("设置必须为对象")
+    validate_ui(values)
     if "workspace_mode" in values:
         from .workspace_modes import normalize_mode
         if normalize_mode(values["workspace_mode"]) != values["workspace_mode"]:
@@ -192,8 +195,8 @@ def save(settings: dict[str, Any]) -> None:
     with transaction():
         _validate(settings)
         current = load()
-        merged = {**current, **{key: value for key, value in settings.items()
-                               if key not in {'_inflight_steering_epoch', 'workspace_mode_revision'}}}
+        merged = normalize_ui({**current, **{key: value for key, value in migrated_patch(settings).items()
+                               if key not in {'_inflight_steering_epoch', 'workspace_mode_revision'}}})
         revision = current.get('workspace_mode_revision', 0)
         revision = revision if type(revision) is int and revision >= 0 else 0
         if 'workspace_mode' in settings and settings['workspace_mode'] != current['workspace_mode']:

@@ -11,7 +11,7 @@ from typing import Any, Callable
 
 import flet as ft
 
-from .theme import palette, style_inputs, style_typography
+from .theme import palette, style_inputs, style_typography, mark_typography
 from ..workbench import redact
 
 OUTPUT_LINE_LIMIT = 200
@@ -109,6 +109,7 @@ class TerminalPanel:
         line = ft.Text(self._bounded_line(text.rstrip('\r')), size=11, font_family='Consolas',
                        color=color, selectable=True, no_wrap=False, max_lines=4,
                        overflow=ft.TextOverflow.ELLIPSIS)
+        mark_typography(line, 'terminal')
         style_typography(line)
         self.lines.append(line)
         if len(self.lines) > OUTPUT_LINE_LIMIT:

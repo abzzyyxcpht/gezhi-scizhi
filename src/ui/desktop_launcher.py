@@ -19,7 +19,7 @@ REQUIRED_RESOURCES = (
     "skills/academic-writing/SKILL.md", "skills/experiment-review/SKILL.md",
     "plugins/bibtex_export.py", "plugins/term_freq.py",
     "assets/gezhi.ico", "assets/gezhi.png", "assets/gezhi.svg", "assets/gezhi-wordmark.png",
-    "assets/research-study.svg", "assets/remote-control.html", "LICENSE", "NOTICE",
+    "assets/research-study.svg", "assets/remote-control.html", "assets/ui-design.json", "LICENSE", "NOTICE",
 )
 
 

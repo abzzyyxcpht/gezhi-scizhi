@@ -52,7 +52,7 @@ function bridge() {
 
 // ---- 1) 纯函数：配置条目与快捷键面板数据 ----
 const rows = flattenConfig()
-assert(rows.length === 11 && rows.some((r) => r.key === "llm_model") && rows.some((r) => r.group === "实验能力"), "配置面板 11 项含模型与实验能力组")
+assert(rows.length === 20 && rows.some((r) => r.key === "llm_model") && rows.some((r) => r.group === "实验能力"), "配置面板 20 项含共享外观、模型与实验能力组")
 assert(SHORTCUTS_ROWS > 20 && SHORTCUT_GROUPS.length === 5, "快捷键面板 5 组")
 assert(SHORTCUT_GROUPS.some((g) => g.items.some((i) => i.keys.includes("Ctrl+K"))), "Ctrl+K 在帮助表")
 

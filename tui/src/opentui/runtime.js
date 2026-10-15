@@ -37,6 +37,9 @@ import { applyTheme, currentTheme, detectTheme, watchTheme } from "./theme/theme
 import { SYMBOLS } from "./theme/symbols.js"
 import { insertText, normalizePaste } from "../composer.js"
 import { safeCommandEcho } from "../sensitive-text.js"
+import { normalizeAppearance } from "./theme/preferences.js"
+import { sidebarLayoutForTerminal, contentWidthForTerminal } from "./layout/width-budget.js"
+import { prepareTranscriptRows } from "./components/markup-lines.js"
 
 const h = React.createElement
 
@@ -59,7 +62,19 @@ const INSIGHT_COMMANDS = new Set(["hypotheses", "consensus", "matrix", "experime
 const INSIGHT_LABEL = { hypotheses: "假设排行榜", consensus: "共识计量", matrix: "证据矩阵", experiments: "实验树", facts: "世界模型" }
 
 /** 主组件：持有会话状态，键盘经路由分层分发 */
-export function OpenTuiApp({ onExit, reducedMotion = !motionEnabled(), controller: controllerProp, autoResume = false } = {}) {
+export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motionEnabled(), controller: controllerProp, autoResume = false } = {}) {
+  const [appearance, setAppearance] = useState(() => normalizeAppearance())
+  const [appearanceReady, setAppearanceReady] = useState(false)
+  const appearanceReadyRef = useRef(false)
+  const markAppearanceReady = () => {
+    if (!appearanceReadyRef.current) { appearanceReadyRef.current = true; setAppearanceReady(true) }
+  }
+  const appearanceRef = useRef(appearance)
+  appearanceRef.current = appearance
+  const preferenceRevision = useRef(0)
+  const preferenceReadSequence = useRef(0)
+  const preferenceWrites = useRef(0)
+  const reducedMotion = forceReducedMotion || !appearance.ui_animations || !appearanceReady
   const [workspaceMode, setWorkspaceMode] = useState("general")
   const [switching, setSwitching] = useState(null) // {to, frame}
   const [shimmerFrame, setShimmerFrame] = useState(null)
@@ -96,8 +111,12 @@ export function OpenTuiApp({ onExit, reducedMotion = !motionEnabled(), controlle
   const [spinnerFrame, setSpinnerFrame] = useState(0)
   const dims = useTerminalDimensions()
   const [sidebarUserHidden, setSidebarUserHidden] = useState(false)
-  const sidebarAutoHidden = dims.width < 90 // 窄终端自动隐藏（ZCode 响应式三态窄端行为）
-  const sidebarHidden = sidebarUserHidden || sidebarAutoHidden
+  const [sidebarOverlayOpen, setSidebarOverlayOpen] = useState(false)
+  const [sidebarScroll, setSidebarScroll] = useState(0)
+  const sidebarLayout = sidebarLayoutForTerminal(dims.width, { mode: appearance.sidebar_mode, userHidden: sidebarUserHidden })
+  const displayLineCount = React.useMemo(() => prepareTranscriptRows(lines,
+    contentWidthForTerminal(dims.width, { sidebarVisible: sidebarLayout === "docked" }), appearance).length,
+    [lines, dims.width, sidebarLayout, appearance.code_show_line_numbers, appearance.code_wrap_long_lines])
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [paletteQuery, setPaletteQuery] = useState("")
   const [paletteIndex, setPaletteIndex] = useState(0)
@@ -106,6 +125,7 @@ export function OpenTuiApp({ onExit, reducedMotion = !motionEnabled(), controlle
   const cwdRef = useRef(typeof process !== "undefined" ? process.cwd() : ".")
   const [scrollOffset, setScrollOffset] = useState(0)
   const [themeMode, setThemeMode] = useState(() => currentTheme())
+  const [, refreshThemeTokens] = useState(0)
   const [expanded, setExpanded] = useState(false) // Ctrl+O 全局展开
   const expandedRef = useRef(false)
   const [stepsOpen, setStepsOpen] = useState(false) // 科研步骤面板
@@ -159,13 +179,43 @@ export function OpenTuiApp({ onExit, reducedMotion = !motionEnabled(), controlle
   }
   const openConfig = async () => {
     const ctrl = controllerRef.current
+    const revision = preferenceRevision.current
+    const readSequence = ++preferenceReadSequence.current
     setConnectionsOpen(false) // 与连接总览互斥（同一 block 位）
     const values = (await ctrl?.configItems?.()) || {}
-    setConfigValues(values)
+    if (revision !== preferenceRevision.current || preferenceWrites.current) return
+    if (readSequence === preferenceReadSequence.current) {
+      const next = normalizeAppearance(values)
+      appearanceRef.current = next
+      setConfigValues(values)
+      setAppearance(next)
+    } else {
+      // Still open the requested panel, using the newer appearance snapshot.
+      setConfigValues({ ...values, ...appearanceRef.current })
+    }
+    markAppearanceReady()
     setConfigIndex(0)
     setConfigScroll(0)
     setConfigOpen(true)
     setStatus("配置面板（↑↓ 选择 · Enter 修改 · Esc 关闭）")
+  }
+  // The revision guards in-flight reads; a single-key patch never replaces
+  // settings edited by the desktop while this terminal is running.
+  const savePreference = async (key, value) => {
+    const revision = ++preferenceRevision.current
+    preferenceWrites.current++
+    try {
+      const result = (await controllerRef.current?.configSet?.(key, value)) || { ok: true }
+      const applied = result.ok && revision === preferenceRevision.current
+      if (applied) {
+        const next = normalizeAppearance({ ...appearanceRef.current, [key]: value })
+        appearanceRef.current = next
+        setAppearance(next)
+        markAppearanceReady()
+        setConfigValues((v) => ({ ...v, [key]: value }))
+      }
+      return { ...result, applied }
+    } finally { preferenceWrites.current-- }
   }
   /** 连接总览（/connections）：只读面板，数据 model_registry.describe 派生 */
   const openConnections = async () => {
@@ -239,11 +289,14 @@ export function OpenTuiApp({ onExit, reducedMotion = !motionEnabled(), controlle
       next = Math.round(Math.min(1, Math.max(0, Number(current) + 0.02)) * 100) / 100
     }
     if (next === undefined) return
-    setConfigValues((v) => ({ ...v, [item.key]: next }))
-    const r = await controllerRef.current?.configSet?.(item.key, next)
+    const r = await savePreference(item.key, next)
     setStatus(r?.ok ? `✓ ${item.label} → ${String(next)}` : `✗ 保存失败：${r?.error || "未知"}`)
-    // 主题/动效类即时生效
-    if (item.key === "appearance_dark_mode") setThemeMode(next ? "dark" : "light")
+    if (r?.applied) {
+      if (item.key === "sidebar_mode") {
+        setSidebarUserHidden(false)
+        setSidebarOverlayOpen(false)
+      }
+    }
   }
   // 模型选择器：控制器持有状态机，runtime 只做打开/保存/按键镜像
   const pickerState = () => controllerRef.current?.modelPicker ?? null
@@ -479,7 +532,7 @@ export function OpenTuiApp({ onExit, reducedMotion = !motionEnabled(), controlle
         setStatus(`研究待办（${list.length} 项）· Esc 关闭`)
       }
     },
-    scrollBy: (delta) => setScrollOffset((o) => clampScrollOffset(o + delta, lines.length, transcriptHeight)),
+    scrollBy: (delta) => setScrollOffset((o) => clampScrollOffset(o + delta, displayLineCount, transcriptHeight)),
     toggleHistorySearch: () => {
       setHistorySearch((v) => {
         setStatus(v ? "已关闭历史搜索" : "历史搜索（输入过滤 · Enter 填入）")
@@ -584,7 +637,10 @@ export function OpenTuiApp({ onExit, reducedMotion = !motionEnabled(), controlle
         setPaletteIndex(0)
       }
     },
-    toggleSidebar: () => setSidebarUserHidden((v) => !v),
+    toggleSidebar: () => {
+      if (appearance.sidebar_mode === "docked" && dims.width >= 120) setSidebarUserHidden((v) => !v)
+      else { setSidebarOverlayOpen((v) => !v); setSidebarScroll(0) }
+    },
     openSubagents: async () => {
       const ctrl = controllerRef.current
       if (!ctrl?.subagents) return
@@ -646,12 +702,23 @@ export function OpenTuiApp({ onExit, reducedMotion = !motionEnabled(), controlle
     let cancelled = false
     const ctrl = controllerRef.current
     if (!ctrl) return undefined
+    const settingsRevision = preferenceRevision.current
+    const settingsReadSequence = ++preferenceReadSequence.current
     ctrl.readMode?.().then((mode) => {
       if (!cancelled && mode) {
         setWorkspaceMode(mode)
         setStatus(`就绪 · ${MODE_TOKENS[mode]?.symbol ?? ""} ${MODE_TOKENS[mode]?.label ?? mode}模式`)
       }
     }).catch(() => {})
+    Promise.resolve(ctrl.configItems?.()).then((values) => {
+      if (!cancelled && settingsRevision === preferenceRevision.current && settingsReadSequence === preferenceReadSequence.current && !preferenceWrites.current) {
+        const next = normalizeAppearance(values || {})
+        appearanceRef.current = next
+        setAppearance(next)
+        setConfigValues(values || {})
+        markAppearanceReady()
+      }
+    }).catch(() => { if (!cancelled) markAppearanceReady() })
     // --continue：恢复最近 Agent 会话（Ink 版 resumeLatest 对标）
     if (autoResume) {
       ctrl.resumeLatest?.().then((r) => {
@@ -669,6 +736,33 @@ export function OpenTuiApp({ onExit, reducedMotion = !motionEnabled(), controlle
       if (!cancelled && Array.isArray(list)) setPluginCommands(list)
     }).catch(() => {})
     return () => { cancelled = true }
+  }, [])
+
+  // Quiet cross-client appearance refresh: no model status requests, no
+  // concurrent reads, and no state update when the twelve fields are unchanged.
+  useEffect(() => {
+    const ctrl = controllerRef.current
+    if (!ctrl?.appearancePrefs) return undefined
+    let disposed = false, inFlight = false
+    const refresh = async () => {
+      if (disposed || inFlight || preferenceWrites.current) return
+      inFlight = true
+      const revision = preferenceRevision.current
+      const readSequence = ++preferenceReadSequence.current
+      try {
+        const next = normalizeAppearance(await ctrl.appearancePrefs())
+        if (disposed || revision !== preferenceRevision.current || readSequence !== preferenceReadSequence.current || preferenceWrites.current) return
+        if (JSON.stringify(next) !== JSON.stringify(appearanceRef.current)) {
+          appearanceRef.current = next
+          setAppearance(next)
+          setConfigValues((values) => ({ ...values, ...next }))
+        }
+        markAppearanceReady()
+      } catch { /* Keep current preferences on transient bridge failures. */ }
+      finally { inFlight = false }
+    }
+    const timer = setInterval(() => { void refresh() }, 2000)
+    return () => { disposed = true; clearInterval(timer) }
   }, [])
 
   // 提交后刷新侧栏（会话状态/上下文可能变化）
@@ -847,16 +941,11 @@ export function OpenTuiApp({ onExit, reducedMotion = !motionEnabled(), controlle
     }
     if (name === "theme") {
       const arg = (parsed.args || "").trim()
-      if (arg === "dark" || arg === "light") {
-        setThemeMode(applyTheme(arg))
-        setStatus(`✓ 已切换到${arg === "dark" ? "深色" : "浅色"}主题`)
-      } else if (arg === "auto" || !arg) {
-        const m = await detectTheme(renderer)
-        setThemeMode(m)
-        setStatus(`✓ 主题跟随终端（当前${m === "dark" ? "深色" : "浅色"}）`)
-      } else {
-        setStatus("用法：/theme dark|light|auto")
-      }
+      const next = !arg || arg === "auto" ? "system" : arg
+      if (!["system", "light", "dark"].includes(next)) { setStatus("用法：/theme dark|light|system（auto）"); return true }
+      const result = await savePreference("theme_mode", next)
+      if (result?.ok === false) { setStatus(`✗ 主题未保存：${result.error || "未知"}`); return true }
+      setStatus(next === "system" ? "✓ 主题跟随终端" : `✓ 已切换到${next === "dark" ? "深色" : "浅色"}主题`)
       return true
     }
     return false
@@ -1693,6 +1782,16 @@ export function OpenTuiApp({ onExit, reducedMotion = !motionEnabled(), controlle
   }
 
   useKeyboard((key) => {
+    // The drawer owns keyboard focus without ever changing the composer state.
+    if (sidebarOverlayOpen) {
+      if (key.name === "escape" || (key.ctrl && key.name === "b")) setSidebarOverlayOpen(false)
+      else if (key.name === "up" || key.name === "down") {
+        const count = sidebarSections.reduce((n, section) => n + 1 + (section.collapsed ? 0 : section.lines?.length || 0), 0)
+        const max = Math.max(0, count - Math.max(1, dims.height - 6))
+        setSidebarScroll((v) => Math.max(0, Math.min(max, v + (key.name === "up" ? -1 : 1))))
+      }
+      return
+    }
     const r = routerRef.current.dispatch(key, { streaming, ...keyboardCtx })
     if (r.consumed) return
     if (key.name === "escape") {
@@ -1767,7 +1866,7 @@ export function OpenTuiApp({ onExit, reducedMotion = !motionEnabled(), controlle
   usePaste((event) => {
     const pasted = event?.bytes ? new TextDecoder().decode(event.bytes) : String(event?.text || "")
     if (!pasted) return
-    if (reader || approval) return
+    if (reader || approval || sidebarOverlayOpen) return
     if (paletteOpen) {
       setPaletteQuery((q) => (q + normalizePaste(pasted)).slice(0, 200))
       return
@@ -1817,20 +1916,39 @@ export function OpenTuiApp({ onExit, reducedMotion = !motionEnabled(), controlle
     return () => clearInterval(id)
   }, [approval])
 
-  // 主题：终端明暗探测（250ms 超时）+ 实时订阅
+  // Explicit preferences win over terminal events; only system mode subscribes.
   useEffect(() => {
     let cancelled = false
-    let unwatch = () => {}
-    detectTheme(renderer).then((m) => {
-      if (!cancelled) setThemeMode(m)
-    }).catch(() => {})
-    unwatch = watchTheme(renderer, (m) => !cancelled && setThemeMode(m))
+    const update = (mode) => {
+      if (cancelled) return
+      applyTheme(mode, mode === "light" ? appearance.code_light_theme : appearance.code_dark_theme)
+      setThemeMode(mode)
+      refreshThemeTokens((revision) => revision + 1)
+    }
+    const system = appearance.theme_mode === "system"
+    if (system) detectTheme(renderer, 250, false).then(update).catch(() => {})
+    else update(appearance.theme_mode)
+    const unwatch = system ? watchTheme(renderer, update, false) : () => {}
     return () => { cancelled = true; unwatch() }
-  }, [])
+  }, [appearance.theme_mode, appearance.code_light_theme, appearance.code_dark_theme])
+
+  useEffect(() => {
+    if (!appearance.inspector_visible) setContextOpen(false)
+  }, [appearance.inspector_visible])
+  useEffect(() => {
+    if (sidebarLayout === "docked") setSidebarOverlayOpen(false)
+  }, [sidebarLayout])
 
   // spinner 动画时钟
   useEffect(() => {
-    if (reducedMotion) return undefined
+    if (reducedMotion) {
+      timers.current.forEach(clearTimeout)
+      timers.current = []
+      setSwitching(null)
+      setShimmerFrame(null)
+      setSpinnerFrame(0)
+      return undefined
+    }
     const id = setInterval(() => setSpinnerFrame((f) => f + 1), 80)
     return () => clearInterval(id)
   }, [reducedMotion])
@@ -1841,11 +1959,11 @@ export function OpenTuiApp({ onExit, reducedMotion = !motionEnabled(), controlle
   scrollOffsetRef.current = scrollOffset
   useEffect(() => {
     const prev = linesLenRef.current
-    linesLenRef.current = lines.length
-    if (prev > 0 && lines.length > prev && scrollOffsetRef.current > 0) {
-      setScrollOffset((o) => o + (lines.length - prev))
+    linesLenRef.current = displayLineCount
+    if (prev > 0 && displayLineCount > prev && scrollOffsetRef.current > 0) {
+      setScrollOffset((o) => o + (displayLineCount - prev))
     }
-  }, [lines.length])
+  }, [displayLineCount])
 
   // 面板节点：slash 补全（composer 上方内联）或 Ctrl+P 命令面板（互斥）
   const panel = paletteOpen
@@ -2140,12 +2258,13 @@ export function OpenTuiApp({ onExit, reducedMotion = !motionEnabled(), controlle
       status,
       shimmerFrame,
       reducedMotion,
+      appearance,
       lines,
       expanded,
       panel: activePanel,
       panelRows,
       scrollOffset,
-      onScroll: (delta) => setScrollOffset((o) => clampScrollOffset(o + delta, lines.length, transcriptHeight)),
+      onScroll: (delta) => setScrollOffset((o) => clampScrollOffset(o + delta, displayLineCount, transcriptHeight)),
       spinner: { active: streaming, frame: spinnerFrame },
       shellMode,
       drill: drillView,
@@ -2165,7 +2284,7 @@ export function OpenTuiApp({ onExit, reducedMotion = !motionEnabled(), controlle
       ],
       used: 8200,
       total: 68000,
-      sidebar: { hidden: sidebarHidden, sections: sidebarSections },
+      sidebar: { hidden: sidebarUserHidden, mode: appearance.sidebar_mode, overlayOpen: sidebarOverlayOpen, scroll: sidebarScroll, sections: sidebarSections },
     },
   })
 }

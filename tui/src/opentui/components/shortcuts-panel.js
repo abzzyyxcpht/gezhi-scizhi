@@ -31,7 +31,7 @@ export const SHORTCUT_GROUPS = [
     items: [
       { keys: "Ctrl+S", desc: "回合中追加指导（steer）" },
       { keys: "Ctrl+O", desc: "展开/折叠工具调用详情" },
-      { keys: "Ctrl+B", desc: "显示/隐藏侧栏" },
+      { keys: "Ctrl+B", desc: "侧栏：宽屏停靠，窄屏抽屉；Esc 关闭" },
       { keys: "Ctrl+R", desc: "历史搜索（过滤历史输入）" },
       { keys: "Ctrl+T", desc: "研究待办面板" },
       { keys: "!<命令>", desc: "shell 模式（项目根目录执行）" },

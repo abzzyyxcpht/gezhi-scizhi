@@ -1,17 +1,17 @@
 // 语义颜色 token —— 唯一颜色权威（组件禁止写字面量颜色，必须从这里取）。
-// 2026-10-13 起**全量对齐 ZCode 官方终端主题**：值取自 ZCode 仓库
+// 语义角色参考 ZCode 终端主题：
 // apps/zcode-cli/packages/tui/src/theme/defaults.ts（DARK_TUI_THEME / LIGHT_TUI_THEME），
-// 该文件是 ZCode CLI/TUI 的成文终端令牌（TuiThemeTokens，57 项），与 packages/ui 的
+// 与 packages/ui 的
 // DESIGN.md 令牌语义一一对应（primary/accent、text/textMuted、border/borderActive/borderSubtle、
 // diff*/markdown*/syntax*、thinkingOpacity）。
 // 模式色（通用/科研）取 ZCode 的 primary(sky-300) 与 secondary(violet-300)；
-// 终端可读性适配：深色底 dim 文本用 slate-500 #64748b（对应 DESIGN.md foreground-subtlest 40%）。
+// 辅助文本适当提高对比度，保证两种主题下实际文字均可读。
 export const TOKENS = {
   // 文本三级（+ 选中态文本）
   text: "#e5e7eb",
   textStrong: "#f8fafc", // ZCode selectedListItemText：选中/最强前景
   textMuted: "#94a3b8",
-  textDim: "#64748b",
+  textDim: "#7d8998",
   // 背景五级
   background: "#0f1419",
   panel: "#161b22",
@@ -53,12 +53,21 @@ export const TOKENS = {
   markdownBlockQuote: "#fbbf24",
   markdownListItem: "#7dd3fc",
   markdownHorizontalRule: "#3b4450",
+  markdownHeading: "#e5e7eb",
+  markdownEmph: "#c4b5fd",
+  markdownCodeBg: "#161b22",
+  markdownText: "#e5e7eb",
   // 语法高亮家族
   syntaxComment: "#94a3b8",
   syntaxKeyword: "#7dd3fc",
   syntaxString: "#86efac",
   syntaxNumber: "#fbbf24",
   syntaxType: "#86efac",
+  syntaxFunction: "#c4b5fd",
+  syntaxVariable: "#e5e7eb",
+  syntaxOperator: "#7dd3fc",
+  syntaxPunctuation: "#94a3b8",
+  codeBackground: "#161b22",
   // 思考内容
   thinkingOpacity: 0.68,
 }
@@ -67,7 +76,7 @@ export const LIGHT_TOKENS = {
   text: "#111827",
   textStrong: "#0f172a", // ZCode selectedListItemText
   textMuted: "#64748b",
-  textDim: "#94a3b8",
+  textDim: "#64748b",
   background: "#f8fafc",
   panel: "#ffffff",
   element: "#e2e8f0",
@@ -102,11 +111,20 @@ export const LIGHT_TOKENS = {
   markdownBlockQuote: "#a16207",
   markdownListItem: "#0369a1",
   markdownHorizontalRule: "#cbd5e1",
+  markdownHeading: "#0f172a",
+  markdownEmph: "#7c3aed",
+  markdownCodeBg: "#e2e8f0",
+  markdownText: "#111827",
   syntaxComment: "#64748b",
   syntaxKeyword: "#0369a1",
   syntaxString: "#15803d",
   syntaxNumber: "#a16207",
   syntaxType: "#15803d",
+  syntaxFunction: "#7c3aed",
+  syntaxVariable: "#111827",
+  syntaxOperator: "#0369a1",
+  syntaxPunctuation: "#64748b",
+  codeBackground: "#ffffff",
   thinkingOpacity: 0.72,
 }
 
@@ -122,8 +140,18 @@ export const FONT_STACKS = {
   sans: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif',
 }
 
-export function paletteFor(mode = "dark") {
-  return mode === "light" ? { ...LIGHT_TOKENS } : { ...TOKENS }
+// Keep a separate immutable source: TOKENS is mutated by live theme switching.
+export const DARK_TOKENS = Object.freeze({ ...TOKENS })
+
+const CODE_PALETTES = {
+  'github-dark': { syntaxComment: '#8b949e', syntaxKeyword: '#ff7b72', syntaxString: '#a5d6ff', syntaxNumber: '#79c0ff', syntaxFunction: '#d2a8ff', syntaxType: '#ffa657', syntaxVariable: '#c9d1d9', syntaxOperator: '#ff7b72', syntaxPunctuation: '#c9d1d9', codeBackground: '#0d1117' },
+  github: { syntaxComment: '#57606a', syntaxKeyword: '#cf222e', syntaxString: '#0a3069', syntaxNumber: '#0550ae', syntaxFunction: '#8250df', syntaxType: '#953800', syntaxVariable: '#24292f', syntaxOperator: '#cf222e', syntaxPunctuation: '#24292f', codeBackground: '#ffffff' },
+  'atom-one-dark': { syntaxComment: '#8b949e', syntaxKeyword: '#c678dd', syntaxString: '#98c379', syntaxNumber: '#d19a66', syntaxFunction: '#61afef', syntaxType: '#e5c07b', syntaxVariable: '#abb2bf', syntaxOperator: '#56b6c2', syntaxPunctuation: '#abb2bf', codeBackground: '#282c34' },
+  'atom-one-light': { syntaxComment: '#626772', syntaxKeyword: '#a626a4', syntaxString: '#397300', syntaxNumber: '#986801', syntaxFunction: '#4078f2', syntaxType: '#986801', syntaxVariable: '#383a42', syntaxOperator: '#0184bc', syntaxPunctuation: '#383a42', codeBackground: '#fafafa' },
+}
+
+export function paletteFor(mode = "dark", codeTheme) {
+  return { ...(mode === "light" ? LIGHT_TOKENS : DARK_TOKENS), ...(CODE_PALETTES[codeTheme] || {}) }
 }
 
 export function modeColor(palette, workspaceMode) {

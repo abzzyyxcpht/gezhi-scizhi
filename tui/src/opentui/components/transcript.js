@@ -3,6 +3,9 @@ import React from "react"
 import { TOKENS } from "../theme/tokens.js"
 import { clipWide } from "../../commands.js"
 import { DiffView } from "./diff-view.js"
+import { prepareTranscriptRows, markupSpans } from "./markup-lines.js"
+import { terminalGeometry } from "../theme/preferences.js"
+import { typeStyle } from "../theme/ui-type.js"
 
 const h = React.createElement
 
@@ -44,8 +47,10 @@ export function clampScrollOffset(offset, total, height) {
   return Math.min(max, Math.max(0, Math.floor(offset)))
 }
 
-export function TranscriptView({ lines = [], height = 20, offset = 0, width = 80, onScroll, emptyArt }) {
-  const rows = windowLines(lines, height, offset)
+export function TranscriptView({ lines = [], height = 20, offset = 0, width = 80, onScroll, emptyArt, appearance = {} }) {
+  const prepared = React.useMemo(() => prepareTranscriptRows(lines, width, appearance), [lines, width, appearance.code_show_line_numbers, appearance.code_wrap_long_lines])
+  const rows = windowLines(prepared, height, offset)
+  const base = typeStyle("ui_base")
   const scrolled = offset > 0
   const isEmpty = rows.length <= 1 && !scrolled
   return h(
@@ -54,8 +59,8 @@ export function TranscriptView({ lines = [], height = 20, offset = 0, width = 80
       flexDirection: "column",
       flexGrow: 1,
       flexShrink: 1,
-      paddingLeft: 1,
-      paddingRight: 1,
+      paddingLeft: terminalGeometry(appearance.density).contentPadding,
+      paddingRight: terminalGeometry(appearance.density).contentPadding,
       onMouseScroll: (event) => {
         const dir = event?.scroll?.direction || event?.direction || "down"
         onScroll?.(dir === "up" ? 3 : -3)
@@ -69,7 +74,7 @@ export function TranscriptView({ lines = [], height = 20, offset = 0, width = 80
           "box",
           { key: `d${i}`, flexDirection: "column", paddingLeft: 1 },
           h("text", { content: clipCached(l.text, width), fg: TOKENS.textMuted }),
-          h(DiffView, { diff: l.diff, width })
+          h(DiffView, { diff: l.diff, width, appearance })
         )
       }
       if (l.user) {
@@ -79,7 +84,9 @@ export function TranscriptView({ lines = [], height = 20, offset = 0, width = 80
           h("text", { content: clipCached(l.text, Math.max(4, width - 2)), fg: TOKENS.text })
         )
       }
-      return h("text", { key: `${i}-${l.text}`, content: clipCached(l.text, width), fg: l.dim ? TOKENS.textMuted : TOKENS.text })
+      return h("text", { key: `${i}-${l.text}`, fg: TOKENS[base.tier], bg: l.code ? TOKENS.codeBackground : undefined },
+        l.gutter ? h("span", { fg: TOKENS.diffLineNumber }, l.gutter) : null,
+        ...markupSpans(l).map((span, si) => h("span", { key: si, fg: TOKENS[span.token], bold: span.bold, bg: span.token === "markdownCode" ? TOKENS.markdownCodeBg : undefined }, span.text)))
     })
   )
 }

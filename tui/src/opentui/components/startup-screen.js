@@ -24,7 +24,7 @@ export function StartupScreen({ workspaceMode = "general", spinnerFrame = 0, shi
       h(
         "box",
         { key: i, flexDirection: "row" },
-        ...shimmerText(row, shimmerFrame + i * 3, { accent: color, base: TOKENS.textDim }).map((s, ci) =>
+        ...(reducedMotion ? [...row].map((ch) => ({ ch, fg: TOKENS.textMuted })) : shimmerText(row, shimmerFrame + i * 3, { accent: color, base: TOKENS.textDim })).map((s, ci) =>
           h("text", { key: ci, content: s.ch, fg: s.fg, bold: row.includes("格") || row.includes("SciZhi") })
         )
       )
@@ -32,7 +32,7 @@ export function StartupScreen({ workspaceMode = "general", spinnerFrame = 0, shi
     shimmerFrame >= shimmerStart || reducedMotion
       ? h("text", { content: `${t.symbol} ${t.label}模式 · 输入消息回车发送，Ctrl+G 切换模式`, fg: color })
       : null,
-    h("text", { content: ` ${brailleFrame(spinnerFrame)} ${error || "连接科研引擎…"} ${pulseDot(spinnerFrame)}`, fg: error ? TOKENS.error : TOKENS.textMuted }),
+    h("text", { content: ` ${reducedMotion ? "◌" : brailleFrame(spinnerFrame)} ${error || "连接科研引擎…"} ${reducedMotion ? "·" : pulseDot(spinnerFrame)}`, fg: error ? TOKENS.error : TOKENS.textMuted }),
     error ? h("text", { content: " 请检查 python -m src.bridge 可启动；按任意键重试", fg: TOKENS.textDim }) : null
   )
 }

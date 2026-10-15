@@ -6,6 +6,7 @@ import flet as ft
 from ..workspace_modes import MODES
 from ..workspace_features import DEFAULT_SHORTCUTS
 from .theme import palette as p
+from .theme import motion_duration, radius
 
 
 class WorkspaceModeControl:
@@ -18,7 +19,7 @@ class WorkspaceModeControl:
     blocks the Flet event loop while the preference is being written.
     """
 
-    TRANSITION_MS = 220
+    TRANSITION_MS = 120
     COMPACT_WIDTH = 154
 
     def __init__(self, page, *, mode='research', on_changed=None, api=None):
@@ -116,8 +117,8 @@ class WorkspaceModeControl:
                     ft.ControlState.DISABLED: ft.BorderSide(1, p.BORDER),
                 },
                 padding=ft.Padding(4, 7, 4, 7), icon_size=15,
-                shape=ft.RoundedRectangleBorder(radius=6),
-                animation_duration=self.TRANSITION_MS,
+                shape=ft.RoundedRectangleBorder(radius=radius('control')),
+                animation_duration=motion_duration('feedback'),
                 mouse_cursor={ft.ControlState.DEFAULT: ft.MouseCursor.CLICK,
                               ft.ControlState.DISABLED: ft.MouseCursor.FORBIDDEN})
 

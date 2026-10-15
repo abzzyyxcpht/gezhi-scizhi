@@ -6,8 +6,10 @@ import flet as ft
 
 from .. import settings
 from ..bridge import handle
+from ..ui_preferences import DESIGN, normalize
 from . import theme as ui_theme
-from .theme import palette, style_inputs
+from .code_preview import CodePreview
+from .theme import palette, style_inputs, ui_size
 
 CATEGORIES = [
     ("general", "通用", "研究默认行为与运行预算"),
@@ -37,6 +39,10 @@ CATEGORY_GROUPS = (
     ("集成", ("models", "plugins", "mcp", "skills", "commands", "hooks", "usage", "automations")),
 )
 _CATEGORY_BY_KEY = {key: (key, label, hint) for key, label, hint in CATEGORIES}
+_CATEGORY_SEARCH = {
+    "appearance": "theme font code terminal density animation sidebar inspector 主题 字体 字号 代码 终端 行号 换行 侧栏 详情 显示",
+}
+_APPEARANCE_SIZE_KEYS = ('ui_font_size', 'code_font_size', 'terminal_font_size')
 
 
 def memory_manager(scope: str = "global", project_id: str = "", role: str = "",
@@ -73,17 +79,18 @@ class SettingsCenter:
         self.section = "general"
         self.width = 720
         self.forms: dict[str, dict[str, ft.Control]] = {}
-        self.message = ft.Text("", size=12, color=palette.TEXT_2, selectable=True, visible=False)
-        self.title = ft.Text("通用", size=22, color=palette.TEXT, weight=ft.FontWeight.W_600)
-        self.subtitle = ft.Text("研究默认行为与运行预算", size=12, color=palette.TEXT_2)
-        self.main = ft.Column(spacing=14, scroll=ft.ScrollMode.AUTO, expand=True)
+        self.appearance_rows = {}
+        self.message = ft.Text("", size=ui_size('caption'), color=palette.TEXT_2, selectable=True, visible=False)
+        self.title = ft.Text("通用", size=ui_size('xl'), color=palette.TEXT, weight=ft.FontWeight.W_600)
+        self.subtitle = ft.Text("研究默认行为与运行预算", size=ui_size('caption'), color=palette.TEXT_2)
+        self.main = ft.Column(spacing=16, scroll=ft.ScrollMode.AUTO, expand=True)
         self.nav_buttons = {}
         rows = []
         for key, label, _ in CATEGORIES:
-            button = ft.TextButton(content=ft.Text(label, size=13, color=palette.TEXT_2),
+            button = ft.TextButton(content=ft.Text(label, size=ui_size('caption'), color=palette.TEXT_2),
                 width=134, tooltip=label,
                 style=ft.ButtonStyle(padding=ft.Padding(12, 8, 12, 8),
-                    shape=ft.RoundedRectangleBorder(radius=6),
+                    shape=ft.RoundedRectangleBorder(radius=ui_theme.radius('small')),
                     alignment=ft.Alignment(-1, 0), bgcolor='transparent',
                     overlay_color={ft.ControlState.FOCUSED: palette.ACTIVE,
                                    ft.ControlState.HOVERED: palette.HOVER},
@@ -95,12 +102,12 @@ class SettingsCenter:
             rows.append(button)
         self._category_rows = rows
         self._category_groups = {}
-        self._nav_empty = ft.Text("没有匹配的设置", size=12, color=palette.TEXT_2,
+        self._nav_empty = ft.Text("没有匹配的设置", size=ui_size('sm'), color=palette.TEXT_2,
                                   visible=False, selectable=True)
         self.search_empty = self._nav_empty
         grouped_rows = []
         for group, keys in CATEGORY_GROUPS:
-            heading = ft.Text(group, size=11, color=palette.TEXT_3, weight=ft.FontWeight.W_600)
+            heading = ft.Text(group, size=ui_size('sm'), color=palette.TEXT_3, weight=ft.FontWeight.W_600)
             self._category_groups[group] = (heading, tuple(keys))
             grouped_rows.append(heading)
             grouped_rows.extend(self.nav_buttons[key] for key in keys)
@@ -109,7 +116,7 @@ class SettingsCenter:
             content=ft.Column(grouped_rows, spacing=2, scroll=ft.ScrollMode.AUTO, expand=True))
         self.search_input = ft.TextField(
             label="搜索设置", hint_text="输入中文或 English 关键词",
-            text_size=13, expand=True, on_change=self._on_search,
+            text_size=ui_size('base'), expand=True, on_change=self._on_search,
             on_submit=self._select_first_filtered)
         self.clear_search = ft.TextButton("清除", on_click=self._clear_search, visible=False)
         self.search_field = self.search_input
@@ -119,8 +126,8 @@ class SettingsCenter:
             options=[ft.dropdown.Option(key, label) for key, label, _ in CATEGORIES],
             on_select=lambda e: self.select(self.selector.value))
         self.body = ft.Container(content=self.main, expand=True)
-        self.content = ft.Column([self.search_bar, self.search_empty, self.selector, ft.Row([self.nav, self.body], spacing=22, expand=True,
-            vertical_alignment=ft.CrossAxisAlignment.START)], spacing=14, expand=True)
+        self.content = ft.Column([self.search_bar, self.search_empty, self.selector, ft.Row([self.nav, self.body], spacing=24, expand=True,
+            vertical_alignment=ft.CrossAxisAlignment.START)], spacing=16, expand=True)
         self._filtered_keys = [key for key, _, _ in CATEGORIES]
         self.select("general", update=False)
         self.resize(720)
@@ -133,7 +140,7 @@ class SettingsCenter:
         self.page.update()
 
     def _category_matches(self, query: str, key: str, label: str, hint: str, group: str) -> bool:
-        haystack = " ".join((key, label, hint, group)).casefold()
+        haystack = " ".join((key, label, hint, group, _CATEGORY_SEARCH.get(key, ""))).casefold()
         # Search terms are ANDed, which keeps a short Chinese or English query
         # useful while still allowing e.g. ``appearance font``.
         return all(term in haystack for term in str(query or "").casefold().split())
@@ -188,12 +195,12 @@ class SettingsCenter:
     def text(self, value, max_lines=0):
         # max_lines>0 时限制高度：诊断 JSON 等长内容不能把分区撑爆
         # （容器已有宽度，折行无限增高才是事故形态）
-        return ft.Text(value, size=12, color=palette.TEXT_2, selectable=True,
+        return ft.Text(value, size=ui_size('caption'), color=palette.TEXT_2, selectable=True,
                        max_lines=max_lines or None,
                        overflow=ft.TextOverflow.ELLIPSIS if max_lines else None)
 
     def field(self, label, value="", multiline=False, secret=False):
-        control = ft.TextField(label=label, value=value, text_size=13, password=secret,
+        control = ft.TextField(label=label, value=value, text_size=ui_size('base'), password=secret,
             can_reveal_password=secret, multiline=multiline, min_lines=3 if multiline else 1,
             max_lines=7 if multiline else 1)
         control._scizhi_field_width = 680
@@ -265,9 +272,9 @@ class SettingsCenter:
             controls = [self.text("读取此功能失败，请重试。"), self.text(str(exc)),
                         self.button("重新读取", lambda: self.select(key))]
         self.main.controls = [self.title, self.subtitle, self.message, ft.Divider(color=palette.BORDER, height=12), *controls]
+        self.resize(self.width)
         style_inputs(self.main, self.selector, self.nav)
         apply_appearance(self.main)
-        self.resize(self.width)
         if update:
             self.page.update()
 
@@ -279,6 +286,7 @@ class SettingsCenter:
         self.nav.visible, self.selector.visible = wide, not wide
         self.content.width = width
         self.main.width = min(760, width - (192 if wide else 0))
+        self._resize_appearance_rows()
         self.resize_fields()
 
     def resize_fields(self):
@@ -302,57 +310,238 @@ class SettingsCenter:
         return controls + [self.button("保存通用设置", lambda: self._save_settings({k: c.value for k, c in switches.items()}), True)]
 
     def build_appearance(self):
-        opts = settings.load()
-        font_family = self.choice("正文中文字体", [("system", "系统默认（含中文回退）"), ("yahei", "微软雅黑")],
-                                   opts.get("appearance_font_family", "system"))
-        code_font = self.choice("代码字体", [("cascadia", "Cascadia Code"), ("consolas", "Consolas")],
-                                 opts.get("appearance_code_font", "cascadia"))
-        scale = self.choice("阅读字号", [(str(v), label) for v, label in [(0.9, "小"), (1.0, "标准"), (1.1, "较大"), (1.2, "大")]],
-                            str(opts.get("appearance_font_scale", 1.0)))
-        density = self.choice("界面密度", [("comfortable", "舒适"), ("compact", "紧凑")],
-                              opts.get("appearance_density", "comfortable"))
-        dark = ft.Switch(label="深色主题", value=bool(opts.get("appearance_dark_mode", False)))
-        animation = ft.Switch(label="思考与开场动效", value=opts["ui_animations"])
-        inspector = ft.Switch(label="宽屏显示右侧研究详情", value=opts["desktop_inspector"])
-        self.forms["appearance"] = {"font_family": font_family, "code_font": code_font, "scale": scale,
-                                     "density": density, "dark": dark, "animation": animation,
-                                     "inspector": inspector}
-        preview_text = ft.Text("Aa 中文 · 研究记录与公式 f(x)", size=15, color=palette.TEXT,
-                               font_family=self._body_font(font_family.value))
-        preview_code = ft.Text("for result in evidence: verify(result)", size=13, color=palette.TEXT_2,
-                               font_family=self._code_font(code_font.value))
-        self.appearance_preview = ft.Container(
-            content=ft.Column([ft.Text("实时预览", size=12, color=palette.TEXT), preview_text, preview_code], spacing=6),
-            padding=12, bgcolor=palette.SURFACE_2, border_radius=6)
+        opts = normalize(settings.load())
+        self._appearance_saved = dict(opts)
+        self._appearance_draft = dict(opts)
+        self._appearance_dirty = set()
+        self.appearance_rows = {}
+        fields = {}
 
-        def preview_changed(e=None):
-            preview_text.font_family = self._body_font(font_family.value)
-            preview_code.font_family = self._code_font(code_font.value)
-            preview_text.size = round(15 * float(scale.value or 1), 1)
-            preview_code.size = round(13 * float(scale.value or 1), 1)
-            self.appearance_preview.update()
+        def select_control(key, label, choices):
+            control = self.choice(label, choices, opts[key])
+            control._scizhi_field_width = 228
+            control.on_select = lambda e: self._appearance_changed(key, commit=True)
+            fields[key] = control
+            return control
 
-        for control in (font_family, code_font, scale, density):
-            control.on_select = preview_changed
-        for control in (dark, animation, inspector):
-            control.on_change = preview_changed
-        self.forms["appearance_preview"] = {"body": preview_text, "code": preview_code}
-        return [self._appearance_row("字体与阅读", "正文和代码分别使用可读的系统字体或等宽字体。", font_family),
-                self._appearance_row("代码显示", "选择代码区域的等宽字形。", code_font),
-                self._appearance_row("阅读字号", "同步调整文本、表单标签和 Markdown 标题。", scale),
-                self._appearance_row("界面密度", "紧凑模式减少分组之间的间距。", density),
-                self._appearance_row("主题", "切换中性灰底色和蓝色操作色。", dark),
-                self._appearance_row("动效", "控制思考和开场过渡动画。", animation),
-                self._appearance_row("研究详情", "在宽屏工作台中显示右侧研究详情。", inspector),
-                self.appearance_preview,
-                self.button("应用外观", lambda: self._apply_appearance_settings(font_family, code_font, scale,
-                    density, dark, animation, inspector), True)]
+        def toggle(key, label):
+            control = ft.Switch(value=opts[key], tooltip=label)
+            control.on_change = lambda e: self._appearance_changed(key, commit=True)
+            fields[key] = control
+            return control
 
-    def _appearance_row(self, label, description, control):
-        return ft.Container(content=ft.Column([
-            ft.Text(label, size=13, color=palette.TEXT, weight=ft.FontWeight.W_600),
-            ft.Text(description, size=11, color=palette.TEXT_2), control], spacing=4),
-            padding=ft.Padding(0, 3, 0, 3))
+        def size(key, label):
+            spec = DESIGN['settings'][key]
+            control = self.field(label, str(opts[key]))
+            control._scizhi_field_width = 140
+            control.keyboard_type = ft.KeyboardType.NUMBER
+            control.suffix_text = 'px'
+            control.hint_text = f"{spec['min']}–{spec['max']}"
+            control.on_change = lambda e: self._appearance_changed(key)
+            control.on_submit = lambda e: self._appearance_changed(key, commit=True)
+            control.on_blur = lambda e: self._appearance_changed(key, commit=True)
+            fields[key] = control
+            return control
+
+        font_family = select_control('appearance_font_family', '正文字体',
+                             [('system', '系统默认'), ('yahei', '微软雅黑')])
+        code_font = select_control('appearance_code_font', '代码字体',
+                           [('cascadia', 'Cascadia Code'), ('consolas', 'Consolas')])
+        theme = select_control('theme_mode', '主题', [('system', '跟随系统'), ('light', '浅色'), ('dark', '深色')])
+        interface_size = size('ui_font_size', '界面字号')
+        code_size = size('code_font_size', '代码字号')
+        terminal_size = size('terminal_font_size', '终端字号')
+        light = select_control('code_light_theme', '浅色代码主题', [('github', 'GitHub'), ('atom-one-light', 'Atom One Light')])
+        dark = select_control('code_dark_theme', '深色代码主题', [('github-dark', 'GitHub Dark'), ('atom-one-dark', 'Atom One Dark')])
+        numbers = toggle('code_show_line_numbers', '代码显示行号')
+        wrap = toggle('code_wrap_long_lines', '代码长行自动换行')
+        density = select_control('density', '界面密度', [('comfortable', '舒适'), ('compact', '紧凑')])
+        sidebar = select_control('sidebar_mode', '侧栏', [('docked', '固定侧栏'), ('overlay', '浮层侧栏'), ('hidden', '隐藏侧栏')])
+        animation = toggle('ui_animations', '界面动效')
+        inspector = toggle('inspector_visible', '研究详情')
+        self._appearance_controls = fields
+        # Preserve the older embedding API without presenting duplicate settings.
+        self.forms['appearance'] = {**fields, 'font_family': font_family, 'code_font': code_font,
+            'animation': animation, 'inspector': inspector,
+            'dark': ft.Switch(value=opts['theme_mode'] == 'dark'),
+            'scale': ft.Dropdown(value=str(opts.get('appearance_font_scale', 1.0)))}
+
+        preview_text = ft.Text('Aa 中文 · 研究记录与公式 f(x)', size=opts['ui_font_size'],
+                               color=palette.TEXT, font_family=self._body_font(font_family.value))
+        sample = 'for paper in evidence:\n    verify(paper, source="研究证据")'
+        self.light_code_preview = CodePreview(sample, 'python', self._appearance_draft, dark=False)
+        self.dark_code_preview = CodePreview(sample, 'python', self._appearance_draft, dark=True)
+        self._code_preview_panels = [
+            ft.Column([self.text('浅色代码'), self.light_code_preview], spacing=8),
+            ft.Column([self.text('深色代码'), self.dark_code_preview], spacing=8)]
+        self.code_preview_layout = ft.Container()
+        preview_terminal = ft.Text('> scizhi research --offline', size=opts['terminal_font_size'],
+                                   color=palette.TEXT_2, font_family=self._code_font(code_font.value))
+        ui_theme.mark_typography(preview_text, 'base')
+        ui_theme.mark_typography(preview_terminal, 'terminal')
+        self.forms['appearance_preview'] = {'body': preview_text, 'terminal': preview_terminal}
+        self.appearance_preview = ft.Container(content=ft.Column([
+            self.text('预览'), preview_text, self.code_preview_layout, preview_terminal], spacing=12),
+            padding=16, border=ft.Border.all(1, palette.BORDER), border_radius=ui_theme.radius())
+        self._refresh_appearance_preview()
+
+        def row(key, title, description, control):
+            return self._appearance_row(title, description, control, key)
+
+        def heading(title):
+            return ft.Container(ft.Text(title, size=ui_size('lg'), color=palette.TEXT, weight=ft.FontWeight.W_600),
+                                padding=ft.Padding(0, 12, 0, 4))
+
+        return [self.text('选择后立即生效；字号输入完成后按 Enter 或移出输入框保存。'),
+            heading('界面设置'),
+            row('theme_mode', '主题', '跟随设备，或固定使用浅色、深色界面。', theme),
+            row('appearance_font_family', '正文字体', '保留中文、英文与数字的清晰字形。', font_family),
+            row('ui_font_size', '界面字号', '仅调整界面文字，图标和布局尺寸保持不变。', interface_size),
+            heading('代码与终端'),
+            row('appearance_code_font', '代码字体', '文件、命令和代码使用等宽字形。', code_font),
+            row('code_font_size', '代码字号', '代码与文件预览单独调整，不跟随界面字号。', code_size),
+            row('terminal_font_size', '终端字号', '桌面内置终端输出单独调整。', terminal_size),
+            row('code_light_theme', '浅色代码主题', '浅色界面下的代码语法配色。', light),
+            row('code_dark_theme', '深色代码主题', '深色界面下的代码语法配色。', dark),
+            row('code_show_line_numbers', '显示行号', '便于定位文件内容和讨论代码。', numbers),
+            row('code_wrap_long_lines', '长行自动换行', '关闭后可横向滚动查看完整代码。', wrap),
+            self.appearance_preview,
+            heading('显示与交互'),
+            row('density', '界面密度', '紧凑模式减少分组间距，保留文字大小。', density),
+            row('sidebar_mode', '侧栏显示', '固定占位、按需浮层，或收起侧栏。', sidebar),
+            row('inspector_visible', '研究详情', '宽屏时显示证据、产物和任务详情。', inspector),
+            row('ui_animations', '界面动效', '控制思考提示和面板过渡，关闭后即时切换。', animation),
+            self.button('应用外观', self._save_appearance_form)]
+
+    def _appearance_value(self, key):
+        control = self._appearance_controls[key]
+        if key in _APPEARANCE_SIZE_KEYS:
+            spec = DESIGN['settings'][key]
+            raw = str(control.value or '').strip()
+            if not raw.isascii() or not raw.isdigit() or not spec['min'] <= int(raw) <= spec['max']:
+                control.error_text = f"请输入 {spec['min']}–{spec['max']} 的整数"
+                return None
+            control.error_text = None
+            return int(raw)
+        return control.value
+
+    def _appearance_is_edited(self, key):
+        baseline = self._appearance_saved.get(key)
+        if key in _APPEARANCE_SIZE_KEYS:
+            baseline = str(baseline)
+        return key in self._appearance_dirty or self._appearance_controls[key].value != baseline
+
+    def sync_appearance_preferences(self, saved: dict):
+        """Refresh clean fields after cross-renderer saves, retaining local drafts.
+
+        Read the current controls before updating the baseline: numeric edits
+        can still be focused, including invalid text with a validation error.
+        Synchronization must neither commit nor discard those edits.
+        """
+        if not hasattr(self, '_appearance_controls'):
+            return
+        current = normalize(saved)
+        dirty = {key for key in self._appearance_controls if self._appearance_is_edited(key)}
+        self._appearance_dirty.update(dirty)
+        for key, control in self._appearance_controls.items():
+            if key not in current:
+                continue
+            if key not in dirty:
+                control.value = str(current[key]) if key in _APPEARANCE_SIZE_KEYS else current[key]
+                self._appearance_draft[key] = current[key]
+            self._appearance_saved[key] = current[key]
+        self._refresh_appearance_preview()
+
+    def _appearance_changed(self, key, commit=False):
+        if commit and key in _APPEARANCE_SIZE_KEYS and not self._appearance_is_edited(key):
+            # Leaving an untouched input is not an instruction to overwrite a
+            # value changed by the terminal or another desktop window.
+            self.sync_appearance_preferences(settings.load())
+            self.page.update()
+            return
+        self._appearance_dirty.add(key)
+        value = self._appearance_value(key)
+        if value is None:
+            self.page.update()
+            return
+        self._appearance_draft[key] = value
+        if commit:
+            current = normalize(settings.load())
+            result = self._save_settings({key: value}) if value != current.get(key) else {}
+            if result is not None:
+                self._appearance_dirty.discard(key)
+                self._appearance_saved[key] = value
+                self._appearance_controls[key].value = str(value) if key in _APPEARANCE_SIZE_KEYS else value
+                self.sync_appearance_preferences(settings.load())
+                apply_appearance(self.content)
+        self._refresh_appearance_preview()
+        self.page.update()
+
+    def _save_appearance_form(self):
+        self.sync_appearance_preferences(settings.load())
+        patch = {}
+        for key in self._appearance_dirty:
+            value = self._appearance_value(key)
+            if value is None:
+                self._notice('请修正标出的字号后重试。', error=True)
+                return
+            patch[key] = value
+        current = normalize(settings.load())
+        changes = {key: value for key, value in patch.items() if value != current.get(key)}
+        if not changes or self._save_settings(changes) is not None:
+            self._appearance_dirty.difference_update(patch)
+            self._appearance_saved.update(patch)
+            for key, value in patch.items():
+                self._appearance_controls[key].value = str(value) if key in _APPEARANCE_SIZE_KEYS else value
+            self.sync_appearance_preferences(settings.load())
+            apply_appearance(self.content)
+            self._refresh_appearance_preview()
+            self.page.update()
+
+    def _refresh_appearance_preview(self):
+        opts = self._appearance_draft
+        preview = self.forms['appearance_preview']
+        preview['body'].font_family = self._body_font(opts['appearance_font_family'])
+        preview['body'].font_family_fallback = ['Microsoft YaHei UI', 'PingFang SC', 'Noto Sans CJK SC']
+        preview['body'].size = opts['ui_font_size']
+        preview['terminal'].font_family = self._code_font(opts['appearance_code_font'])
+        preview['terminal'].font_family_fallback = ['Consolas', 'Microsoft YaHei UI', 'Noto Sans CJK SC']
+        preview['terminal'].size = opts['terminal_font_size']
+        self.light_code_preview.refresh(opts, dark=False)
+        self.dark_code_preview.refresh(opts, dark=True)
+        preview['code'] = self.light_code_preview.code_lines[0]
+        preview['line_numbers'] = self.light_code_preview.rows[0].controls[0]
+
+    def _appearance_row(self, label, description, control, key):
+        text = ft.Column([ft.Text(label, size=ui_size('base'), color=palette.TEXT, weight=ft.FontWeight.W_500),
+                          ft.Text(description, size=ui_size('sm'), color=palette.TEXT_2)], spacing=4)
+        row = ft.Container(padding=ft.Padding(0, 4, 0, 4))
+        row._scizhi_row_parts = (text, control)
+        self.appearance_rows[key] = row
+        return row
+
+    def _resize_appearance_rows(self):
+        if self.section != 'appearance' or not self.appearance_rows:
+            return
+        wide = self.main.width >= 620
+        factor = .8 if settings.load()['density'] == 'compact' else 1
+
+        def retain_density(layout):
+            layout._scizhi_original_spacing = layout.spacing
+            layout.spacing = round(layout.spacing * factor, 1)
+            return layout
+
+        for row in self.appearance_rows.values():
+            text, control = row._scizhi_row_parts
+            text.expand = wide
+            row.content = retain_density(ft.Row([text, control], spacing=24,
+                                  vertical_alignment=ft.CrossAxisAlignment.CENTER) if wide else
+                           ft.Column([text, control], spacing=8))
+        for panel in self._code_preview_panels:
+            panel.expand = wide
+        self.code_preview_layout.content = retain_density(ft.Row(self._code_preview_panels, spacing=12,
+            vertical_alignment=ft.CrossAxisAlignment.START) if wide else
+            ft.Column(self._code_preview_panels, spacing=12))
 
     @staticmethod
     def _body_font(value):
@@ -710,85 +899,29 @@ class SettingsCenter:
 
 
 def apply_appearance(*roots):
-    """Apply typography and density to a widget tree idempotently.
-
-    Flet keeps input and Markdown styles as nested objects, so walking only
-    ``controls`` misses dropdown labels and code previews.  Every mutable size
-    records its source value once; changing settings back to 1.0 therefore
-    restores the original value instead of scaling the already scaled value.
-    """
-    opts = settings.load()
-    scale = opts.get("appearance_font_scale", 1.0)
-    scale = float(scale) if type(scale) in (int, float) and scale in (.9, 1.0, 1.1, 1.2) else 1.0
-    factor = .8 if opts.get("appearance_density") == "compact" else 1
-    configured = False
-    configure = getattr(ui_theme, "configure_typography", None)
-    if callable(configure):
-        configure(opts)
-        configured = True
-
-    def scale_style(style, seen_styles, code=False):
-        if style is None or id(style) in seen_styles:
-            return
-        seen_styles.add(id(style))
-        if isinstance(style, ft.TextStyle):
-            if isinstance(getattr(style, "size", None), (int, float)):
-                original = getattr(style, "_scizhi_original_size", style.size)
-                style._scizhi_original_size = original
-                style.size = round(original * scale, 1)
-            family = getattr(style, "font_family", None)
-            if family is not None:
-                style.font_family = (SettingsCenter._code_font(opts.get("appearance_code_font", "cascadia"))
-                                     if code else SettingsCenter._body_font(opts.get("appearance_font_family", "system")))
-
-    pending, seen, seen_styles = list(roots), set(), set()
+    """Apply shared typography and reversible density without scaling geometry."""
+    opts = normalize(settings.load())
+    ui_theme.configure_typography(opts)
+    style_inputs(*roots)
+    factor = .8 if opts['density'] == 'compact' else 1
+    pending, seen = list(roots), set()
     while pending:
         node = pending.pop()
         if node is None or id(node) in seen:
             continue
         seen.add(id(node))
-        if isinstance(node, ft.Control):
-            if isinstance(node, ft.Markdown):
-                # theme.markdown_styles uses the configured base scale.  A
-                # fresh sheet also ensures a new font reaches existing text.
-                styles = getattr(ui_theme, "markdown_styles", None)
-                if callable(styles):
-                    node.md_style_sheet = styles()
-            ui_theme.style_typography(node)
-            if isinstance(node, (ft.Column, ft.Row)) and isinstance(node.spacing, (int, float)):
-                original = getattr(node, "_scizhi_original_spacing", node.spacing)
-                node._scizhi_original_spacing = original
-                node.spacing = round(original * factor, 1)
-            for attr in ("style", "label_style", "hint_style", "text_style"):
-                style = getattr(node, attr, None)
-                if isinstance(style, ft.TextStyle):
-                    current = str(getattr(style, "font_family", "") or "").casefold()
-                    scale_style(style, seen_styles, any(token in current for token in ("consolas", "cascadia", "mono")))
-            button_style = getattr(node, "style", None)
-            if isinstance(button_style, ft.ButtonStyle):
-                style = getattr(button_style, "text_style", None)
-                if isinstance(style, ft.TextStyle):
-                    scale_style(style, seen_styles)
-            for attr in ("controls", "content", "actions", "tabs", "leading", "trailing", "title", "subtitle", "label"):
-                child = getattr(node, attr, None)
-                if isinstance(child, (list, tuple)):
-                    pending.extend(child)
-                elif isinstance(child, ft.Control):
-                    pending.append(child)
-            sheet = getattr(node, "md_style_sheet", None)
-            if sheet is not None:
-                # MarkdownStyleSheet exposes each text style as *_text_style.
-                for name in dir(sheet):
-                    if name.endswith("_text_style"):
-                        style = getattr(sheet, name, None)
-                        if isinstance(style, ft.TextStyle):
-                            code_style = "code" in name.casefold()
-                            # configured markdown styles already include the
-                            # global scale; ordinary older themes do not.
-                            if not configured:
-                                scale_style(style, seen_styles, code_style)
-                            if getattr(style, "font_family", None) is not None:
-                                style.font_family = (SettingsCenter._code_font(opts.get("appearance_code_font", "cascadia"))
-                                                     if code_style else SettingsCenter._body_font(opts.get("appearance_font_family", "system")))
-        elif isinstance(node, ft.TextStyle):
-            scale_style(node, seen_styles)
+        if getattr(node, '_scizhi_code_preview', False):
+            # Samples own explicit light/dark preferences; source views load
+            # the saved preferences. Refresh through their shared renderer.
+            node.refresh()
+            continue
+        if isinstance(node, (ft.Column, ft.Row)) and isinstance(node.spacing, (int, float)):
+            original = getattr(node, '_scizhi_original_spacing', node.spacing)
+            node._scizhi_original_spacing = original
+            node.spacing = round(original * factor, 1)
+        for attr in ('controls', 'content', 'actions', 'tabs', 'leading', 'trailing', 'title', 'subtitle', 'label'):
+            child = getattr(node, attr, None)
+            if isinstance(child, (list, tuple)):
+                pending.extend(child)
+            elif isinstance(child, ft.Control):
+                pending.append(child)

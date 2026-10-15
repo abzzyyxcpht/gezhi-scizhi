@@ -2,8 +2,12 @@
 // 数据源：bridge settings_get + llm_status；本组件只负责展示与光标，保存由 runtime 接线。
 // 小终端内部滚动：面板按 terminalHeight 窗口化（configPanelRows 预算与渲染共用一个推导），不溢出。
 import React from "react"
+import stringWidth from "string-width"
 import { TOKENS } from "../theme/tokens.js"
 import { SYMBOLS } from "../theme/symbols.js"
+import { UI_DESIGN } from "../theme/preferences.js"
+import { typeStyle } from "../theme/ui-type.js"
+import { clipToWidth } from "../layout/width-budget.js"
 
 const h = React.createElement
 
@@ -19,9 +23,29 @@ export const CONFIG_GROUPS = [
   {
     title: "主题",
     items: [
-      { key: "appearance_dark_mode", label: "深色主题", type: "bool", desc: "关闭后切换浅色" },
+      { key: "theme_mode", label: "主题模式", type: "cycle", options: UI_DESIGN.settings.theme_mode.options, desc: "system 跟随终端明暗" },
       { key: "ui_animations", label: "界面动效", type: "bool", desc: "shimmer/spinner/切换过渡" },
-      { key: "appearance_density", label: "信息密度", type: "cycle", options: ["comfortable", "compact"], desc: "compact 为窄屏优化" },
+      { key: "density", label: "信息密度", type: "cycle", options: UI_DESIGN.settings.density.options, desc: "收紧面板和正文留白" },
+      { key: "sidebar_mode", label: "侧栏布局", type: "cycle", options: UI_DESIGN.settings.sidebar_mode.options, desc: "Ctrl+B 打开/收起侧栏" },
+      { key: "inspector_visible", label: "上下文检查器", type: "bool", desc: "显示上下文用量与检查器" },
+    ],
+  },
+  {
+    title: "代码显示",
+    items: [
+      { key: "code_light_theme", label: "浅色代码主题", type: "cycle", options: UI_DESIGN.settings.code_light_theme.options, desc: "浅色模式下的代码配色" },
+      { key: "code_dark_theme", label: "深色代码主题", type: "cycle", options: UI_DESIGN.settings.code_dark_theme.options, desc: "深色模式下的代码配色" },
+      { key: "code_show_line_numbers", label: "代码行号", type: "bool", desc: "代码块和 diff 行号" },
+      { key: "code_wrap_long_lines", label: "代码自动换行", type: "bool", desc: "窄屏长行自动折行" },
+    ],
+  },
+  {
+    title: "桌面字号（终端字形由宿主设置）",
+    items: [
+      ...[ ['ui_font_size', '桌面界面字号'], ['code_font_size', '桌面代码字号'], ['terminal_font_size', '桌面终端字号'] ].map(([key, label]) => ({
+        key, label, type: "cycle", options: Array.from({ length: UI_DESIGN.settings[key].max - UI_DESIGN.settings[key].min + 1 }, (_, i) => UI_DESIGN.settings[key].min + i),
+        desc: "共享桌面偏好；本终端字号由宿主控制",
+      })),
     ],
   },
   {
@@ -107,32 +131,35 @@ function formatValue(item, values) {
 }
 
 export function ConfigPanel({ values = {}, index = 0, scroll = 0, maxVisibleRows = 12, width = 74, groups = CONFIG_GROUPS }) {
+  const caption = typeStyle("caption")
+  const heading = typeStyle("lg")
   const rows = configRowModel(groups)
   const start = Math.min(Math.max(0, scroll), Math.max(0, rows.length - maxVisibleRows))
   const window = rows.slice(start, start + maxVisibleRows)
   const hiddenAbove = start > 0
   const hiddenBelow = start + maxVisibleRows < rows.length
+  const innerWidth = Math.max(8, Math.min(width, 78) - 2)
   return h(
     "box",
     { flexDirection: "column", border: true, borderStyle: "single", borderColor: TOKENS.borderFocus, width: Math.min(width, 78) },
-    h("text", { content: " 配置 · Enter 切换/修改（即切即存）· Esc 关闭", fg: TOKENS.accent }),
+    h("text", { content: clipToWidth(" 配置 · Enter 切换/修改（即切即存）· Esc 关闭", innerWidth), fg: TOKENS.accent }),
     hiddenAbove ? h("text", { content: `  ↑ 更多配置（第 ${start + 1} 行起）`, fg: TOKENS.textDim }) : null,
     ...window.map((row, i) => {
       if (row.kind === "header") {
-        return h("text", { key: `h${start + i}`, content: ` ${row.label}`, fg: TOKENS.modeResearch })
+        return h("text", { key: `h${start + i}`, content: clipToWidth(` ${row.label}`, innerWidth), fg: TOKENS[heading.tier], bold: heading.strong })
       }
       const selected = row.itemIndex === index
       const item = row.item
+      const prefix = clipToWidth(`${selected ? SYMBOLS.pointer : " "} ${item.label}  ${formatValue(item, values)}`, innerWidth)
+      const description = selected ? clipToWidth(`  ${item.desc}`, innerWidth - stringWidth(prefix)) : ""
       return h(
-        "box",
-        { key: item.key, flexDirection: "row" },
-        h("text", { content: selected ? `${SYMBOLS.pointer} ` : "  ", fg: selected ? TOKENS.accent : TOKENS.textMuted }),
-        h("text", { content: item.label, fg: selected ? TOKENS.textStrong : TOKENS.text }),
-        h("text", { content: `  ${formatValue(item, values)}`, fg: selected ? TOKENS.accent : TOKENS.textMuted }),
-        selected ? h("text", { content: `  ${item.desc}`.slice(0, 30), fg: TOKENS.textDim }) : null
+        "text",
+        { key: item.key, fg: selected ? TOKENS.accent : TOKENS.text },
+        h("span", { bold: selected }, prefix),
+        description ? h("span", { fg: TOKENS[caption.tier] }, description) : null
       )
     }),
     hiddenBelow ? h("text", { content: `  ↓ 更多配置（共 ${rows.length} 行）`, fg: TOKENS.textDim }) : null,
-    h("text", { content: ` ↑↓ 选择 · Enter 修改 · 共 ${flattenConfig(groups).length} 项 · /models 阶段模型 · /connections 连接总览`, fg: TOKENS.textDim })
+    h("text", { content: clipToWidth(` ↑↓ 选择 · Enter 修改 · 共 ${flattenConfig(groups).length} 项 · /models 阶段模型 · /connections 连接总览`, innerWidth), fg: TOKENS.textDim })
   )
 }

@@ -4,9 +4,9 @@ import { TOKENS, paletteFor } from "./tokens.js"
 
 let mode = "dark"
 
-export function applyTheme(next) {
+export function applyTheme(next, codeTheme) {
   mode = next === "light" ? "light" : "dark"
-  Object.assign(TOKENS, paletteFor(mode))
+  Object.assign(TOKENS, paletteFor(mode, codeTheme))
   return mode
 }
 
@@ -15,25 +15,26 @@ export function currentTheme() {
 }
 
 /** 终端明暗探测：250ms 超时 fallback，不阻塞首帧 */
-export async function detectTheme(renderer, timeoutMs = 250) {
+export async function detectTheme(renderer, timeoutMs = 250, updatePalette = true) {
+  const resolve = (value) => updatePalette ? applyTheme(value) : value
   try {
     const detected = await renderer?.waitForThemeMode?.(timeoutMs)
-    if (detected === "light" || detected === "dark") return applyTheme(detected)
+    if (detected === "light" || detected === "dark") return resolve(detected)
   } catch { /* 探测失败走兜底 */ }
   const fg = process.env.COLORFGBG
   if (fg) {
     const bg = fg.split(";").pop()
     const n = Number(bg)
-    if (Number.isFinite(n)) return applyTheme(n < 8 ? "dark" : "light")
+    if (Number.isFinite(n)) return resolve(n < 8 ? "dark" : "light")
   }
-  return applyTheme("dark")
+  return resolve("dark")
 }
 
 /** 订阅终端主题变化（用户切换系统/终端明暗时实时跟随） */
-export function watchTheme(renderer, onChange) {
+export function watchTheme(renderer, onChange, updatePalette = true) {
   const handler = (m) => {
     if (m === "light" || m === "dark") {
-      applyTheme(m)
+      if (updatePalette) applyTheme(m)
       onChange?.(m)
     }
   }

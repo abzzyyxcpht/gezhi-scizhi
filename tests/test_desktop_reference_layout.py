@@ -66,12 +66,12 @@ class DesktopReferenceLayoutTests(unittest.TestCase):
         original = label.size
         saved = settings.load()
         with mock.patch.object(settings, 'load', return_value={
-                **saved, 'appearance_font_scale': 1.2}):
+                **saved, 'ui_font_size': 18}):
             self.ui.workspace_settings_saved()
             self.ui.workspace_settings_saved()
-        self.assertEqual(label.size, round(original * 1.2, 1))
+        self.assertEqual(label.size, original + 4)
         with mock.patch.object(settings, 'load', return_value={
-                **saved, 'appearance_font_scale': 1.0}):
+                **saved, 'ui_font_size': 14}):
             self.ui.workspace_settings_saved()
         self.assertEqual(label.size, original)
 

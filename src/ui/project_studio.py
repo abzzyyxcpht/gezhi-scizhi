@@ -10,6 +10,7 @@ import flet as ft
 
 from ..bridge import handle
 from .theme import palette, style_inputs
+from .code_preview import CodePreview
 
 
 SECTIONS = {"files": "项目文件", "git": "Git版本", "planning": "任务计划", "handoff": "研究交接"}
@@ -398,7 +399,8 @@ class ProjectStudio:
                         head + f"；{result.get('pdf_error') or '未能提取到文本'}。"
                         "扫描件或加密 PDF 暂不支持加入对话。")]
             else:
-                self.preview.controls = [self.text(content, mono=True)]
+                language = Path(path).suffix.lstrip('.') or 'text'
+                self.preview.controls = [CodePreview(content, language=language)]
             self.note(("PDF 文本过长，已展示前段内容。" if kind == "pdf" else "文件过长，已展示前段内容。")
                       if result.get("truncated") else
                       "图片已打开；当前对话附件支持文本文件。" if kind == "image" else f"已打开 {path}")
@@ -416,7 +418,7 @@ class ProjectStudio:
             self._update()
 
     def _build_git(self):
-        self.git_output, self.git_diff = self.text("点击刷新查看版本状态。", mono=True), self.text("", mono=True)
+        self.git_output, self.git_diff = self.text("点击刷新查看版本状态。", mono=True), CodePreview('', language='diff')
         self.git_paths = ft.TextField(label="本次提交的相对路径", hint_text="每行一个文件，例如 src/main.py", multiline=True, min_lines=2, max_lines=5)
         self.commit_message = ft.TextField(label="提交说明", hint_text="例如：补充实验结果与讨论")
         self.git_remote = ft.Dropdown(label="远程仓库", options=[], width=210)

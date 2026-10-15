@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "settings": {
+    "theme_mode": {"default": "dark", "options": ["system", "light", "dark"]},
+    "ui_font_size": {"default": 14, "min": 12, "max": 20},
+    "code_font_size": {"default": 14, "min": 12, "max": 20},
+    "terminal_font_size": {"default": 13, "min": 12, "max": 20},
+    "code_light_theme": {"default": "github", "options": ["github", "atom-one-light"]},
+    "code_dark_theme": {"default": "github-dark", "options": ["github-dark", "atom-one-dark"]},
+    "code_show_line_numbers": {"default": true},
+    "code_wrap_long_lines": {"default": true},
+    "density": {"default": "comfortable", "options": ["comfortable", "compact"]},
+    "ui_animations": {"default": true},
+    "sidebar_mode": {"default": "docked", "options": ["docked", "overlay", "hidden"]},
+    "inspector_visible": {"default": true}
+  },
+  "typography": {"base": 14, "offsets": {"xl": 4, "lg": 2, "base": 0, "caption": -1, "sm": -2, "xs": -4, "2xs": -5}},
+  "spacing": {"tight": 4, "compact": 8, "dense": 12, "panel": 16, "section": 24},
+  "radius": {"small": 4, "control": 8, "panel": 12, "dialog": 16},
+  "motion": {"feedback_ms": 120, "panel_ms": 180, "easing": "easeOut"}
+}

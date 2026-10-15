@@ -1,6 +1,7 @@
 // 会话控制器 —— 框架无关的 bridge 交互层（注入 bridge，便于无 Python 单测）
 // 职责：模式同步/切换、斜杠命令子集、非斜杠消息的 agent 发起 + 轮询 + 快照渲染
 import { parseCommand, COMMANDS } from "../commands.js"
+import { normalizeAppearance } from "./theme/preferences.js"
 import { rankHypotheses, consensusFromBrief, buildExperimentTree } from "./components/research-panels.js"
 import { timelineCounts, timelineDetail } from "./components/research-timeline.js"
 import { REASONING_EFFORTS, approvalSummaryLine } from "../research-commands.js"
@@ -87,7 +88,7 @@ export function renderEvents(events = [], { expanded = false } = {}) {
     const payload = ev?.payload || {}
     if (ev.kind !== "assistant_delta") flushDelta()
     if (ev.kind === "assistant_message" || ev.kind === "user_message") {
-      if (payload.text) lines.push({ text: payload.text })
+      if (payload.text) lines.push({ text: payload.text, ...(ev.kind === "user_message" ? { user: true } : {}) })
       // 论断-引用强绑定（Kosmos/PaperQA2 对标）：助手消息带 citations 时渲染引用角标行
       const citations = ev.kind === "assistant_message" && Array.isArray(payload.citations) ? payload.citations : []
       citations.slice(0, 5).forEach((c, i) => {
@@ -954,20 +955,27 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
   }
 
   // ---- 配置面板（/config）：聚合 settings + llm_status，即切即存 ----
+  async function appearancePrefs() {
+    const response = await bridge.call({ cmd: "settings_get" })
+    if (!response?.ok || !response.settings) throw new Error(response?.error || "外观设置暂不可用")
+    return normalizeAppearance(response.settings)
+  }
+
   async function configItems() {
     const [settings, llm] = await Promise.all([
       bridge.call({ cmd: "settings_get" }).catch(() => ({ ok: false })),
       bridge.call({ cmd: "llm_status" }).catch(() => ({ ok: false })),
     ])
     const s = settings?.settings || {}
+    const appearance = normalizeAppearance(s)
     const l = llm?.status || llm || {}
     return {
       llm_model: l.model || s.llm_model || "",
       reasoning_effort: l.reasoning_effort || "medium",
       default_offline: Boolean(s.default_offline),
-      appearance_dark_mode: Boolean(s.appearance_dark_mode),
-      ui_animations: s.ui_animations !== false,
-      appearance_density: s.appearance_density || "comfortable",
+      ...appearance,
+      appearance_dark_mode: appearance.theme_mode !== "light",
+      appearance_density: appearance.density,
       workspace_mode: s.workspace_mode || "research",
       lit_threshold: s.lit_threshold ?? 0.18,
       memory_enabled: s.memory_enabled !== false,
@@ -1189,6 +1197,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
     facts,
     factVote,
     configItems,
+    appearancePrefs,
     configSet,
     connections,
     timeline,

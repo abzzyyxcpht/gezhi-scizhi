@@ -22,8 +22,9 @@ from ..agents.specs import ROSTER
 from ..workspace_modes import MODES, mode_for_agent
 from ..config import ARTIFACT_DIR, ROOT_DIR
 from ..version import APP_VERSION
+from ..ui_preferences import normalize as normalize_ui, resolve_dark, SCHEMA as UI_SCHEMA
 from ..citation.gbt7714 import format_entry
-from .theme import build_theme, configure_typography, palette, repaint, style_inputs
+from .theme import build_theme, configure_typography, palette, repaint, style_inputs, ui_size, radius, code_font_family, motion_duration
 
 def main(page: ft.Page) -> None:
     service.init()
@@ -88,9 +89,10 @@ def main(page: ft.Page) -> None:
     # 配色注册表，构建期经它取色的控件在深色启动时直接拿到暗色值——
     # 桌面控件树已全量 palette 化，无需启动期重映射（theme.repaint 只在
     # 运行期切换主题时按值补救动态构建的子树）。
-    appearance = app_settings.load()
+    appearance = normalize_ui(app_settings.load())
+    appearance_state = {'values': appearance}
     configure_typography(appearance)
-    palette.set_dark(bool(appearance.get("appearance_dark_mode", True)))
+    palette.set_dark(resolve_dark(appearance, system_dark=page.platform_brightness != ft.Brightness.LIGHT))
     page.bgcolor = palette.BG
     # 窗口尺寸按逻辑像素解释：150% 缩放的 2560×1600 屏只有约 1138 逻辑宽，
     # 固定 1320×840 会被系统夹进屏幕、布局却仍按 1320 排——右缘（页面留白与
@@ -109,9 +111,11 @@ def main(page: ft.Page) -> None:
     SIDE_W = 216
     RAIL_W = 340
     layout = {"page_w": 920, "rail": False, "sidebar_w": SIDE_W,
-              "panel_manual": None, "panel_dialog": False}
+              "panel_manual": None, "panel_dialog": False, "navigation_open": False}
     PAGE_W = layout["page_w"]  # 构建期初值；resize 后改 layout 并回写控件 width
     page.theme_mode = ft.ThemeMode.DARK if palette.dark else ft.ThemeMode.LIGHT
+    if appearance['theme_mode'] == 'system':
+        page.theme_mode = ft.ThemeMode.SYSTEM
     page.theme = build_theme(dark=palette.dark)
 
     state: dict[str, Any] = {"task_id": None, "seen_events": 0, "poll": True,
@@ -131,7 +135,7 @@ def main(page: ft.Page) -> None:
         page.theme_mode = ft.ThemeMode.DARK if dark else ft.ThemeMode.LIGHT
         page.theme = build_theme(dark=dark)
         page.bgcolor = palette.BG
-        repaint(sidebar, stage, inspector, *pages)
+        repaint(sidebar, stage, inspector, page.drawer, *pages)
         page.update()
 
     # ============ 通用小件 ============
@@ -160,7 +164,7 @@ def main(page: ft.Page) -> None:
         布局，卡片里的长文本/进度条会把整列撑破，导致整页空白。
         """
         return ft.Container(
-            bgcolor=palette.SURFACE_2, border_radius=6, padding=padding,
+            bgcolor=palette.CARD, border_radius=radius('panel'), padding=padding,
             expand=expand, width=width,
             border=ft.Border.all(1, palette.BORDER),
             content=content)
@@ -168,7 +172,7 @@ def main(page: ft.Page) -> None:
     def dark_card(content, padding=16, expand=None, width=None) -> ft.Container:
         """承载执行记录与证据摘要。"""
         return ft.Container(
-            bgcolor=palette.SURFACE_2, border_radius=6, padding=padding, expand=expand,
+            bgcolor=palette.SURFACE_2, border_radius=radius('panel'), padding=padding, expand=expand,
             width=width,
             border=ft.Border.all(1, palette.BORDER),
             content=content)
@@ -363,14 +367,14 @@ def main(page: ft.Page) -> None:
     home_busy = ft.Text("", size=12, color=palette.TEXT_2)
     home_start_btn = ft.FilledButton("开始研究", icon=ft.Icons.ARROW_FORWARD,
                     on_click=start_task,
-                    style=ft.ButtonStyle(bgcolor=palette.ACCENT, color="white"))
+                    style=ft.ButtonStyle(bgcolor=palette.ACCENT, color=palette.ON_ACCENT))
     home_demo_button = ft.TextButton('体验离线研究', disabled=True,
         on_click=lambda e: onboarding.start_demo(), style=ft.ButtonStyle(color=palette.ACCENT_TEXT))
     form_card = ft.Container(width=PAGE_W, content=ft.Column([
         ft.Container(height=8),
         ft.Row([
             ft.Column([
-                ft.Text("开始一项研究", size=28, weight=ft.FontWeight.W_600,
+                ft.Text("开始一项研究", size=ui_size("xl"), weight=ft.FontWeight.W_600,
                         color=palette.TEXT),
                 ft.Text("检索文献，核对证据，整理摘要与参考文献。",
                         size=13, color=palette.TEXT_2),
@@ -479,7 +483,7 @@ def main(page: ft.Page) -> None:
         for e in evts[state["seen_events"]:]:
             log_col.controls.append(ft.Text(
                 f"[{e.get('ts','')}] {e.get('node') or e.get('kind')} — {e.get('message','')}",
-                size=12, font_family="Consolas", width=layout["page_w"] - 96,
+                size=12, font_family=code_font_family(), width=layout["page_w"] - 96,
                 color=LOG_COLOR.get(e.get("kind"), palette.TEXT_2)))
         state["seen_events"] = len(evts)
         if len(log_col.controls) > 800:   # 长任务：保留最近 800 条，防控件无限增长
@@ -538,7 +542,7 @@ def main(page: ft.Page) -> None:
                     size=13, color=palette.TEXT_2),
             ft.FilledButton("开始研究", on_click=lambda e: nav_to(0),
                             style=ft.ButtonStyle(bgcolor=palette.ACCENT,
-                                                 color="white")),
+                                                 color=palette.ON_ACCENT)),
         ], spacing=10))
     hitl_bar = ft.Container(
         visible=False, bgcolor=palette.SURFACE_2, border_radius=6,
@@ -964,7 +968,7 @@ def main(page: ft.Page) -> None:
                                          bgcolor=palette.DANGER))
 
     result_col = ft.Column(width=PAGE_W, expand=True, spacing=12, controls=[
-        ft.Row([ft.Text("科研成果", size=22, weight=ft.FontWeight.W_600,
+        ft.Row([ft.Text("科研成果", size=ui_size("xl"), weight=ft.FontWeight.W_600,
                         color=palette.TEXT),
                 ft.Row([
                     ft.OutlinedButton("可复现研究包", icon=ft.Icons.INVENTORY_2_OUTLINED,
@@ -1086,12 +1090,12 @@ def main(page: ft.Page) -> None:
         page.update()
 
     stats_col = ft.Column(width=PAGE_W, expand=True, spacing=12, controls=[
-        ft.Row([ft.Text("数据速览", size=22, weight=ft.FontWeight.W_600,
+        ft.Row([ft.Text("数据速览", size=ui_size("xl"), weight=ft.FontWeight.W_600,
                         color=palette.TEXT),
                 ft.FilledButton("上传实验数据", icon=ft.Icons.UPLOAD_FILE,
                                 on_click=lambda e: page.run_task(choose_data_file),
                                 style=ft.ButtonStyle(bgcolor=palette.ACCENT,
-                                                     color="white")),
+                                                     color=palette.ON_ACCENT)),
                 ft.TextButton("试试内置示例数据",
                               on_click=lambda e: render_stats(
                                   "experiment_demo.csv",
@@ -1132,7 +1136,7 @@ def main(page: ft.Page) -> None:
     workspace_session_note = ft.Text('', size=11, color=palette.TEXT_3, max_lines=2,
         overflow=ft.TextOverflow.ELLIPSIS)
     workspace_mode_control = None
-    workspace_title = ft.Text('科研智能体', size=22, weight=ft.FontWeight.W_600,
+    workspace_title = ft.Text('科研智能体', size=ui_size("xl"), weight=ft.FontWeight.W_600,
                               color=palette.TEXT, expand=True)
     workspace_description = ft.Text('', size=12, color=palette.TEXT_2)
     workspace_examples = ft.Row(spacing=4, wrap=True)
@@ -1220,7 +1224,7 @@ def main(page: ft.Page) -> None:
                  ft.dropdown.Option("review", "证据审查")])
     agent_run_btn = ft.FilledButton(
         "执行任务", icon=ft.Icons.ARROW_FORWARD, on_click=lambda e: agent_go("run"),
-        style=ft.ButtonStyle(bgcolor=palette.ACCENT, color="white"))
+        style=ft.ButtonStyle(bgcolor=palette.ACCENT, color=palette.ON_ACCENT))
     agent_plan_btn = ft.OutlinedButton(
         "预览计划", icon=ft.Icons.SCHEMA,
         on_click=lambda e: agent_go("plan"))
@@ -1289,7 +1293,7 @@ def main(page: ft.Page) -> None:
         for i, s in enumerate(plan.get("steps", []), 1):
             agent_plan_col.controls.append(ft.Row([
                 ft.Text(f"{i}.", size=12, color=palette.TEXT_2),
-                ft.Text(s.get("tool", ""), size=12, font_family="Consolas",
+                ft.Text(s.get("tool", ""), size=12, font_family=code_font_family(),
                         color=palette.INFO, weight=ft.FontWeight.W_600,
                         max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                 cap_chip(s.get("capability", "")
@@ -1353,7 +1357,7 @@ def main(page: ft.Page) -> None:
                 bg, fg = "transparent", palette.INFO if line.startswith("@") else palette.TEXT_2
             rows.append(ft.Container(bgcolor=bg, border_radius=2,
                 padding=ft.Padding(6, 0, 6, 0),
-                content=ft.Text(line, size=11, font_family="Consolas", color=fg,
+                content=ft.Text(line, size=11, font_family=code_font_family(), color=fg,
                                 selectable=True)))
         if not rows:
             return ft.Text("变更后文件内容与现状一致（无差异）。", size=11, color=palette.TEXT_3)
@@ -1422,7 +1426,7 @@ def main(page: ft.Page) -> None:
 
             extras.append(ft.Row([
                 ft.Text("命令：", size=12, color=palette.TEXT_2),
-                ft.Text(command, size=12, font_family="Consolas",
+                ft.Text(command, size=12, font_family=code_font_family(),
                         color=palette.TEXT, selectable=True, expand=True),
                 ft.IconButton(ft.Icons.COPY_OUTLINED, icon_size=16,
                               icon_color=palette.TEXT_2, tooltip="复制命令",
@@ -1483,7 +1487,7 @@ def main(page: ft.Page) -> None:
                         color=palette.TEXT_3),
             ], spacing=8),
             ft.Text(f"工具 {tool_name} 请求执行：", size=12),
-            ft.Text(args_text, size=11, font_family="Consolas",
+            ft.Text(args_text, size=11, font_family=code_font_family(),
                     color=palette.TEXT),
             *extras,
             ft.Row([
@@ -1652,7 +1656,7 @@ def main(page: ft.Page) -> None:
                 border=ft.Border.only(bottom=ft.BorderSide(1, palette.BORDER)),
                 content=ft.Row([
                     ft.Text(e.get("timestamp", "")[11:19], size=10,
-                            font_family="Consolas", color=palette.TEXT_3, width=62),
+                            font_family=code_font_family(), color=palette.TEXT_3, width=62),
                     ft.Column([
                         ft.Text(event_names.get(typ, typ), size=12,
                                 color=color, weight=ft.FontWeight.W_500,
@@ -1887,7 +1891,7 @@ def main(page: ft.Page) -> None:
                                 color=palette.TEXT, max_lines=1,
                                 overflow=ft.TextOverflow.ELLIPSIS),
                         ft.Text(srow["session_id"], size=10,
-                                font_family="Consolas", color=palette.TEXT_3),
+                                font_family=code_font_family(), color=palette.TEXT_3),
                     ], spacing=4, expand=True),
                     ft.Text(f"{srow['events']} 条记录", size=11, color=palette.TEXT_2),
                     ft.Icon(ft.Icons.CHEVRON_RIGHT, size=14,
@@ -1944,7 +1948,7 @@ def main(page: ft.Page) -> None:
                          ft.dropdown.Option("deny", "拒绝")])
             policy_dropdowns[name] = dd
             rows.append(ft.Row([
-                ft.Text(name, size=10, font_family="Consolas", expand=True),
+                ft.Text(name, size=10, font_family=code_font_family(), expand=True),
                 cap_chip(spec.capability),
                 dd,
             ], spacing=4))
@@ -2004,7 +2008,7 @@ def main(page: ft.Page) -> None:
                 ft.TextButton("重置", on_click=reset_policy),
                 ft.TextButton("关闭", on_click=lambda e: page.pop_dialog()),
                 ft.FilledButton("保存权限策略", on_click=save_policy,
-                                style=ft.ButtonStyle(bgcolor=palette.ACCENT, color="white")),
+                                style=ft.ButtonStyle(bgcolor=palette.ACCENT, color=palette.ON_ACCENT)),
             ]))
 
     agent_log_wrap = ft.Container(width=PAGE_W, visible=False,
@@ -2304,7 +2308,7 @@ def main(page: ft.Page) -> None:
                                       on_change=toggle_plugin)]),
                     ft.Text(item.get("description", ""), size=12, color=palette.TEXT_2, width=640),
                     ft.Text(" ".join('/' + c for c in item.get('commands', [])),
-                            size=11, font_family="Consolas", color=palette.ACCENT,
+                            size=11, font_family=code_font_family(), color=palette.ACCENT,
                             max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                 ], spacing=4)))
         for error in summary.get("errors", []):
@@ -2379,9 +2383,9 @@ def main(page: ft.Page) -> None:
             page.update()
         page.run_thread(work)
     tau_value = ft.Text(f"{float(set_tau.value):.2f}", size=12,
-                        font_family="Consolas", color=palette.TEXT_2)
+                        font_family=code_font_family(), color=palette.TEXT_2)
     round_value = ft.Text(f"{int(set_round.value)} 轮", size=12,
-                          font_family="Consolas", color=palette.TEXT_2)
+                          font_family=code_font_family(), color=palette.TEXT_2)
 
     def update_search_settings(e) -> None:
         tau_value.value = f"{float(set_tau.value):.2f}"
@@ -2603,7 +2607,7 @@ def main(page: ft.Page) -> None:
             ft.TextButton("科研 Skill 与阶段加载", icon=ft.Icons.AUTO_STORIES_OUTLINED, on_click=show_skills),
             ft.Row([
                 ft.FilledButton("保存设置", icon=ft.Icons.SAVE, on_click=save_settings,
-                                style=ft.ButtonStyle(bgcolor=palette.ACCENT, color="white")),
+                                style=ft.ButtonStyle(bgcolor=palette.ACCENT, color=palette.ON_ACCENT)),
                 ft.OutlinedButton("系统自检", icon=ft.Icons.HEALTH_AND_SAFETY,
                                   on_click=run_doctor_ui),
             ], spacing=10),
@@ -2624,7 +2628,7 @@ def main(page: ft.Page) -> None:
         usage=_settings_section_usage)
     settings_sections = {key: build() for key, build in settings_section_builders.items()}
     settings_column = ft.Column([
-        ft.Text("设置", size=22, weight=ft.FontWeight.W_600, color=palette.TEXT),
+        ft.Text("设置", size=ui_size("xl"), weight=ft.FontWeight.W_600, color=palette.TEXT),
         mode_text,
         ft.Container(height=6),
         *settings_sections["models"],
@@ -2639,19 +2643,34 @@ def main(page: ft.Page) -> None:
     style_inputs(*settings_column.controls)
 
     def workspace_settings_saved():
-        saved = app_settings.load()
+        saved = normalize_ui(app_settings.load())
+        appearance_state['values'] = saved
+        settings_center.sync_appearance_preferences(saved)
+        notebook_center.sync_appearance_preferences(saved)
         for key, control in feature_switches.items():
             control.value = saved[key]
         reasoning_motion["enabled"] = bool(saved.get("ui_animations", True))
         reasoning_control.refresh(saved.get("llm_reasoning_effort", "auto"))
         set_reasoning.value = saved.get("llm_reasoning_effort", "auto")
-        apply_theme(bool(saved.get("appearance_dark_mode", False)))
-        apply_appearance(sidebar, stage, inspector, *pages)
+        configure_typography(saved)
+        apply_theme(resolve_dark(saved, system_dark=page.platform_brightness != ft.Brightness.LIGHT))
+        page.theme_mode = (ft.ThemeMode.SYSTEM if saved['theme_mode'] == 'system' else
+                           ft.ThemeMode.DARK if palette.dark else ft.ThemeMode.LIGHT)
+        apply_appearance(sidebar, stage, inspector, page.drawer, *pages)
+        workspace_mode_control._paint()
         page.theme = build_theme(dark=palette.dark)
         refresh_shortcut_hints()
         refresh_mode_text()
         refresh_agent_mode_text()
         on_resized()
+
+    def refresh_appearance_preferences():
+        saved = normalize_ui(app_settings.load())
+        keys = (*UI_SCHEMA, 'appearance_font_family', 'appearance_code_font')
+        if all(saved.get(key) == appearance_state['values'].get(key) for key in keys):
+            return False
+        workspace_settings_saved()
+        return True
 
     settings_center = SettingsCenter(page, sections={
         "models": [mode_text, *settings_sections["models"]],
@@ -2760,6 +2779,26 @@ def main(page: ft.Page) -> None:
         (7, "项目", ft.Icons.FOLDER_OUTLINED),
     )
     breadcrumb = ft.Text("研究工作台", size=12, color=palette.TEXT_2)
+    async def open_navigation(e=None):
+        layout['navigation_open'] = True
+        page.drawer.selected_index = nav_index['i']
+        await page.show_drawer()
+
+    async def drawer_select(e):
+        index = int(e.control.selected_index)
+        layout['navigation_open'] = False
+        await page.close_drawer()
+        nav_to(index)
+
+    def drawer_dismiss(e=None):
+        layout['navigation_open'] = False
+
+    page.drawer = ft.NavigationDrawer(
+        controls=[ft.NavigationDrawerDestination(label=label, icon=icon) for _, label, icon in NAV_ITEMS],
+        bgcolor=palette.SURFACE, indicator_color=palette.ACTIVE, width=248,
+        on_change=drawer_select, on_dismiss=drawer_dismiss)
+    navigation_toggle = ft.IconButton(ft.Icons.MENU, tooltip='导航',
+                                      on_click=lambda e: page.run_task(open_navigation), visible=False)
     workspace_status = ft.Text("", size=11, color=palette.TEXT_2,
                                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
                                expand=True)
@@ -2840,7 +2879,7 @@ def main(page: ft.Page) -> None:
     inspect_hitl = ft.Text("无待审批动作", size=12, color=palette.TEXT_3)
     inspect_hitl_btn = ft.FilledButton(
         "去确认", visible=False, on_click=lambda e: nav_to(1),
-        style=ft.ButtonStyle(bgcolor=palette.ACCENT, color="white"))
+        style=ft.ButtonStyle(bgcolor=palette.ACCENT, color=palette.ON_ACCENT))
     inspect_agents = ft.Column(spacing=2)
 
     def _pick_agent(name: str) -> None:
@@ -3046,7 +3085,7 @@ def main(page: ft.Page) -> None:
                             color=palette.TEXT_2 if read else palette.TEXT,
                             max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                     ft.Text(str(n.get("created_at", ""))[:16], size=10,
-                            color=palette.TEXT_3, font_family="Consolas"),
+                            color=palette.TEXT_3, font_family=code_font_family()),
                 ], spacing=8),
                 ft.Text(str(n.get("body", ""))[:80], size=11, color=palette.TEXT_2,
                         max_lines=2, overflow=ft.TextOverflow.ELLIPSIS,
@@ -3089,7 +3128,7 @@ def main(page: ft.Page) -> None:
         page.update()
 
     notif_panel = ft.Container(
-        width=360, bgcolor=palette.INPUT, border_radius=10,
+        width=360, bgcolor=palette.POPOVER, border_radius=radius('panel'),
         border=ft.Border.all(1, palette.BORDER),
         padding=ft.Padding(12, 10, 12, 10),
         content=ft.Column([
@@ -3120,12 +3159,12 @@ def main(page: ft.Page) -> None:
     stage = ft.Container(
         expand=True, bgcolor=palette.BG, padding=8,
         content=ft.Container(
-            expand=True, bgcolor=palette.SURFACE, border_radius=10,
+            expand=True, bgcolor=palette.SURFACE, border_radius=radius('panel'),
             border=ft.Border.all(1, palette.BORDER),
             padding=ft.Padding(24, 16, 24, 12),
             content=ft.Stack([
                 ft.Column([
-                    ft.Row([breadcrumb, ft.Row([toolbar, bell], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER)],
+                    ft.Row([ft.Row([navigation_toggle, breadcrumb], spacing=8), ft.Row([toolbar, bell], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER)],
                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                     ft.Divider(color=palette.BORDER, height=16),
                     body,
@@ -3173,6 +3212,11 @@ def main(page: ft.Page) -> None:
     inspector.content = tools_panel.content
 
     def keyboard_shortcut(e) -> None:
+        if layout['navigation_open']:
+            if str(getattr(e, 'key', '')).casefold() == 'escape':
+                layout['navigation_open'] = False
+                page.run_task(page.close_drawer)
+            return
         from ..workspace_features import shortcut_action
         action = shortcut_action(str(getattr(e, "key", "")), ctrl=bool(getattr(e, "ctrl", False)),
                                  alt=bool(getattr(e, "alt", False)), shift=bool(getattr(e, "shift", False)))
@@ -3262,12 +3306,17 @@ def main(page: ft.Page) -> None:
         auto_rail = nav_index["i"] in (1, 2) and bool(state["task_id"]) and feature_switches["desktop_inspector"].value
         wanted = auto_rail if layout["panel_manual"] is None else layout["panel_manual"]
         rail = win >= 1380 and bool(wanted) and not layout["panel_dialog"]
-        side_w = SIDE_W if win >= 1200 else 184
+        sidebar_mode = appearance_state['values']['sidebar_mode']
+        docked = sidebar_mode == 'docked' and win >= 1200
+        sidebar.visible = docked
+        navigation_toggle.visible = not docked
+        side_w = SIDE_W if docked else 0
         chrome = side_w + (RAIL_W if rail else 0) + 68
         pw = max(280, win - chrome)
         layout["page_w"] = pw
         layout["rail"] = rail
-        layout["sidebar_w"] = side_w
+        # Retain the side panel's internal geometry while it is offstage.
+        layout["sidebar_w"] = SIDE_W
         workspace_status.value = ("规划模型已配置" if llm.available("planning") else
             "通用任务需配置模型 · 离线仅工作区信息" if workspace_mode['value'] == 'general' else
             "规则规划 · 各科研阶段可单独配置模型")
@@ -3276,6 +3325,10 @@ def main(page: ft.Page) -> None:
             page.update()
 
     page.on_resize = on_resized
+    def platform_theme_changed(e=None):
+        if appearance_state['values']['theme_mode'] == 'system':
+            workspace_settings_saved()
+    page.on_platform_brightness_change = platform_theme_changed
     style_inputs(*pages, policy_col)
     apply_appearance(sidebar, stage, inspector, *pages)
     page.theme = build_theme(dark=palette.dark)
@@ -3352,6 +3405,7 @@ def main(page: ft.Page) -> None:
             await asyncio.sleep(delay)
             if not state['poll']:
                 return
+            refresh_appearance_preferences()
             st = refresh_task()
             if agent_state["session_id"] and (agent_busy.visible or nav_index["i"] == 4):
                 # 当前会话即使本机空闲，也可能在 TUI/远端继续或回滚。
@@ -3411,7 +3465,7 @@ def main(page: ft.Page) -> None:
             animate = reasoning_control.motion_enabled() and agent_busy.visible
             reasoning_control.pulse(frame, active=agent_busy.visible)
             for stroke in thinking_strokes:
-                stroke.animate_opacity = ft.Animation(180) if animate else None
+                stroke.animate_opacity = ft.Animation(motion_duration('panel'), ft.AnimationCurve.EASE_OUT) if animate else None
             if animate:
                 for i, stroke in enumerate(thinking_strokes):
                     stroke.opacity = 1 if frame % 3 == i else .3

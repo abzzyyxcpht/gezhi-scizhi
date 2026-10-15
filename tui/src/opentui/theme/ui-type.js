@@ -4,7 +4,9 @@
 // 用法：typeStyle("sm") → { tier, strong }；组件禁止自造字号/层级。
 
 /** ZCode 字号刻度（px 值，用于文档与测试对齐；终端只消费 tier 语义） */
-export const TYPE_SCALE = {
+import { UI_DESIGN } from "./preferences.js"
+
+const TYPE_DESCRIPTIONS = {
   xl: { px: 18, role: "一级阅读标题（Markdown h1）" },
   lg: { px: 16, role: "二级阅读标题（Markdown h2）" },
   base: { px: 14, role: "正文/通用按钮/工作区标题等主要 UI 文本" },
@@ -13,9 +15,11 @@ export const TYPE_SCALE = {
   xs: { px: 10, role: "快捷键/徽标/计数器/极弱元数据" },
   "2xs": { px: 9, role: "仅限工作流图轴刻度（禁止用于内容）" },
 }
+export const TYPE_SCALE = Object.fromEntries(Object.entries(TYPE_DESCRIPTIONS).map(([key, info]) =>
+  [key, { ...info, px: UI_DESIGN.typography.base + UI_DESIGN.typography.offsets[key] }]))
 
 /** ZCode 默认界面字号（Appearance 设置只改这一个变量） */
-export const UI_FONT_SIZE = 14
+export const UI_FONT_SIZE = UI_DESIGN.settings.ui_font_size.default
 
 /** 层级角色 → 终端实现（tier 取 theme tokens 的文本三级；strong=加粗） */
 const ROLES = {
@@ -29,7 +33,7 @@ const ROLES = {
 
 /** 取角色对应的终端样式（ZCode：字号与颜色层级是独立决策，这里保持独立参数） */
 export function typeStyle(role = "base", { strong = null } = {}) {
-  const r = ROLES[role] || ROLES.base
+  const r = ROLES[role.replace(/^ui_/, "")] || ROLES.base
   return { role, tier: r.tier, strong: strong === null ? r.strong : Boolean(strong) }
 }
 

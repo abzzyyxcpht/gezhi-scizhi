@@ -22,3 +22,8 @@ test-output/
 .codely-cli/
 .mimosa/
 assets/flet-windows.zip
+zcode/
+_testtmp/
+tui/_dbg-fixture.mjs
+tui/_probe_keys.txt
+100

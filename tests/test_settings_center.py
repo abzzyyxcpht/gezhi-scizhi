@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import flet as ft
 from src import config, settings, workspace_features, research_notebook
 from src.ui.settings_center import SettingsCenter, CATEGORIES, apply_appearance, memory_manager
+from src.ui import theme
 
 
 def controls(root):
@@ -122,16 +123,16 @@ class SettingsCenterTests(unittest.TestCase):
             self.assertEqual('Bearer fixture-secret', mcp.load_servers()[0]['headers']['Authorization'])
 
     def test_appearance_scaling_idempotent_and_reversible(self):
-        label = ft.Text('研究记录', size=20)
+        label = theme.mark_typography(ft.Text('研究记录', size=14), 'base')
         row = ft.Column([label], spacing=10)
-        settings.save({'appearance_font_scale': 1.2, 'appearance_density': 'compact'})
+        settings.save({'ui_font_size': 20, 'density': 'compact'})
         apply_appearance(row)
-        apply_appearance(row)
-        self.assertEqual(24, label.size)
-        self.assertEqual(8, row.spacing)
-        settings.save({'appearance_font_scale': 1.0, 'appearance_density': 'comfortable'})
         apply_appearance(row)
         self.assertEqual(20, label.size)
+        self.assertEqual(8, row.spacing)
+        settings.save({'ui_font_size': 14, 'density': 'comfortable'})
+        apply_appearance(row)
+        self.assertEqual(14, label.size)
         self.assertEqual(10, row.spacing)
 
     def test_narrow_layout_uses_one_category_selector(self):
@@ -189,12 +190,18 @@ class SettingsCenterTests(unittest.TestCase):
     def test_apply_appearance_scales_dropdown_labels_and_button_style_once(self):
         dropdown = ft.Dropdown(text_size=13, label_style=ft.TextStyle(size=12))
         button = ft.OutlinedButton('应用', style=ft.ButtonStyle(text_style=ft.TextStyle(size=14)))
-        settings.save({'appearance_font_scale': 1.2, 'appearance_density': 'comfortable'})
+        settings.save({'ui_font_size': 20, 'density': 'comfortable'})
         apply_appearance(dropdown, button)
         apply_appearance(dropdown, button)
-        self.assertEqual(15.6, dropdown.text_size)
-        self.assertEqual(14.4, dropdown.label_style.size)
-        self.assertEqual(16.8, button.style.text_style.size)
+        self.assertEqual(19, dropdown.text_size)
+        self.assertEqual(18, dropdown.label_style.size)
+        self.assertEqual(20, button.style.text_style.size)
+
+    def test_appearance_accepts_custom_section_without_native_preview(self):
+        center = SettingsCenter(MagicMock(), sections={'appearance': []})
+        center.select('appearance')
+        center.resize(480)
+        self.assertEqual('appearance', center.section)
 
 
 if __name__ == '__main__':

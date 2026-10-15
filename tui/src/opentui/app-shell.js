@@ -11,6 +11,8 @@ import { TranscriptView, chromeRows } from "./components/transcript.js"
 import { EmptyTranscript } from "./components/empty-transcript.js"
 import { StartupScreen } from "./components/startup-screen.js"
 import { brailleFrame } from "./motion/frames.js"
+import { normalizeAppearance, terminalGeometry } from "./theme/preferences.js"
+import { typeStyle } from "./theme/ui-type.js"
 
 const h = React.createElement
 
@@ -47,7 +49,10 @@ export function AppShell({ state = {} }) {
     reducedMotion = false,
   } = state
 
-  const sidebarLayout = sidebarLayoutForTerminal(terminalWidth, { userHidden: sidebar.hidden })
+  const appearance = normalizeAppearance(state.appearance)
+  const geometry = terminalGeometry(appearance.density)
+  const caption = typeStyle("ui_caption")
+  const sidebarLayout = sidebarLayoutForTerminal(terminalWidth, { userHidden: sidebar.hidden, mode: sidebar.mode ?? appearance.sidebar_mode })
   const contentWidth = contentWidthForTerminal(terminalWidth, { sidebarVisible: sidebarLayout === "docked" })
   const color = state.shellMode ? TOKENS.shellMode : modeColor(TOKENS, workspaceMode)
   void contentWidth // Phase 2 末期接入逐面板高预算；先保证单一推导入口被消费
@@ -56,7 +61,7 @@ export function AppShell({ state = {} }) {
     return h(
       "box",
       { width: "100%", height: "100%", backgroundColor: TOKENS.background },
-      h(StartupScreen, { workspaceMode, spinnerFrame: state.spinnerFrame ?? 0, shimmerFrame: state.shimmerFrame ?? 0, error: state.bootError })
+      h(StartupScreen, { workspaceMode, spinnerFrame: state.spinnerFrame ?? 0, shimmerFrame: state.shimmerFrame ?? 0, reducedMotion, error: state.bootError })
     )
   }
 
@@ -66,7 +71,7 @@ export function AppShell({ state = {} }) {
     h(
       "box",
       { flexDirection: "column", flexGrow: 1, minWidth: 40 },
-      h(BrandHeader, { workspaceMode, shimmerFrame, status }),
+      h(BrandHeader, { workspaceMode, shimmerFrame: reducedMotion ? null : shimmerFrame, status }),
       state.drill
         ? state.drill
         : h(TranscriptView, {
@@ -75,8 +80,9 @@ export function AppShell({ state = {} }) {
         offset: state.scrollOffset ?? 0,
         width: contentWidthForTerminal(state.terminalWidth ?? 80, { sidebarVisible: sidebarLayout === "docked" }),
         onScroll: state.onScroll,
+        appearance,
             emptyArt: state.emptyArt !== false
-              ? h(EmptyTranscript, { workspaceMode, shimmerFrame: state.shimmerFrame ?? null, width: contentWidthForTerminal(state.terminalWidth ?? 80, { sidebarVisible: sidebarLayout === "docked" }) })
+              ? h(EmptyTranscript, { workspaceMode, shimmerFrame: reducedMotion ? null : state.shimmerFrame ?? null, width: contentWidthForTerminal(state.terminalWidth ?? 80, { sidebarVisible: sidebarLayout === "docked" }) })
               : null,
           }
         ),
@@ -84,9 +90,9 @@ export function AppShell({ state = {} }) {
         "box",
         { flexDirection: "row", paddingLeft: 1 },
         spinner.active
-          ? h("text", { content: `${brailleFrame(spinner.frame)}`, fg: color })
+          ? h("text", { content: `${reducedMotion ? "◌" : brailleFrame(spinner.frame)}`, fg: color })
           : h("text", { content: `${SYMBOLS.bullet}`, fg: TOKENS.success }),
-        h("text", { content: " 就绪 ", fg: TOKENS.textMuted })
+        h("text", { content: spinner.active ? " 处理中… " : " 就绪 ", fg: TOKENS[caption.tier], bold: caption.strong })
       ),
       h(
         "box",
@@ -108,10 +114,15 @@ export function AppShell({ state = {} }) {
           fg: TOKENS.text,
         })
       ),
-      state.panel ? h("box", { marginTop: 1, flexShrink: 0 }, state.panel) : null,
+      state.panel ? h("box", { marginTop: geometry.panelGap, flexShrink: 0 }, state.panel) : null,
       h(FooterTop, { slotValues, tips, tickMs: state.tickMs ?? 0, workspaceMode, expanded: state.expanded }),
-      h(FooterBottom, { used, total, warningCtx: state.warningCtx })
+      appearance.inspector_visible ? h(FooterBottom, { used, total, warningCtx: state.warningCtx }) : null
     ),
-    sidebarLayout === "docked" ? h(Sidebar, { terminalWidth, workspaceMode, hidden: false, sections: sidebar.sections }) : null
+    sidebarLayout === "docked" ? h(Sidebar, { terminalWidth, workspaceMode, hidden: false, sections: sidebar.sections, density: appearance.density }) : null,
+    h("box", {
+      visible: Boolean(sidebar.overlayOpen),
+      position: "absolute", top: 0, right: 0, zIndex: 20,
+      height: "100%", width: Math.min(terminalWidth, 42), backgroundColor: TOKENS.panel,
+    }, h(Sidebar, { terminalWidth, terminalHeight: state.terminalHeight, workspaceMode, layout: "overlay", sections: sidebar.sections, density: appearance.density, scroll: sidebar.scroll }))
   )
 }

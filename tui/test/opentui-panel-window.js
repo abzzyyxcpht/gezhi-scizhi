@@ -10,7 +10,7 @@ import { upgradeFixture } from './upgrade-ui-fixture.js';
 
 // ---- 1) 纯函数：config 行模型 / 几何 / 滚动窗口 ----
 const rows = configRowModel();
-assert.equal(rows.filter(r => r.kind === 'header').length, 4, 'config 4 个分组标题');
+assert.equal(rows.filter(r => r.kind === 'header').length, 6, 'config 模型、主题、代码、桌面字号、科研、实验能力六组');
 assert.equal(rows.filter(r => r.kind === 'item').length, flattenConfig().length, '条目行数 == flatten 索引数');
 rows.filter(r => r.kind === 'item').forEach((r, i) => assert.equal(r.itemIndex, i, 'itemIndex 与 flatten 对齐'));
 
@@ -22,7 +22,7 @@ for (const height of [18, 24, 28, 34, 40, 60]) {
 }
 assert.equal(configPanelGeometry(24).overflows, true, '24 行溢出（窗口化）');
 assert.equal(configPanelGeometry(24).panelRows, configPanelGeometry(24).visibleRows + 6, '溢出时含上下指示行');
-assert.equal(configPanelGeometry(60).panelRows, 19, '充足终端：全量 15 行 + 头尾 + 边框，无指示行');
+assert.equal(configPanelGeometry(60).panelRows, rows.length + 4, '充足终端：全部设置加头尾和边框，无指示行');
 
 // 光标恒在窗口内（顺序滚动，模拟真实按键链）
 for (const height of [24, 28, 34]) {
@@ -86,8 +86,8 @@ await upgradeFixture(async t => {
   await t.wait(() => t.frame().includes('配置 · Enter'), '/config opens at 80x28');
   assert.ok(t.frame().includes('默认模型'), '首窗口含模型组');
 
-  // ↓ 11 次走到底部（实验能力组）→ 窗口跟随、顶部出现溢出指示
-  for (let i = 0; i < 11; i++) await t.press('\x1b[B');
+  // 跨过新增显示设置到实验能力组，窗口仍跟随光标。
+  for (let i = 0; i < flattenConfig().findIndex(item => item.key === 'experimental_evidence_reviews'); i++) await t.press('\x1b[B');
   assert.ok(t.frame().includes('后台证据复核'), '分页后越窗条目可见');
   assert.ok(t.frame().includes('↑ 更多配置'), '顶部溢出指示');
   t.capture('config-window-28', 80, 28);

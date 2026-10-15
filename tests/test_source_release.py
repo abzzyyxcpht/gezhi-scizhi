@@ -30,7 +30,7 @@ class PublicSourceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             required = {'pytest.ini', 'scripts/clean_workspace.py', 'tests/test_clean_workspace.py',
-                        'tests/fixtures/session_projection_legacy.json'}
+                        'tests/fixtures/session_projection_legacy.json', 'assets/ui-design.json'}
             for relative in required:
                 self._put(root, relative)
             self.assertTrue(required.issubset({p.relative_to(root).as_posix() for p in public_files(root)}))
