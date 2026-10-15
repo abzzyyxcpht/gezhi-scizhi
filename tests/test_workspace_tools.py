@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import os
 import tempfile
 import unittest
 import uuid
@@ -369,6 +370,11 @@ class FileReadPaginationTest(unittest.TestCase):
     def test_second_byte_page_reads_only_its_bounded_slice(self):
         path = self.root / "text.txt"
         path.write_bytes(b"first\n" + b"body line\n" * 30000)
+        # Test cache I/O independently of journal support on the test volume.
+        signature = mock.patch.object(tools_workspace, '_text_file_signature',
+                                      return_value=('verified-stable', str(path)))
+        signature.start()
+        self.addCleanup(signature.stop)
         first = self.read(limit=1)  # A line read can warm the metadata cache too.
         original_open = Path.open
         read_sizes = []
@@ -409,6 +415,99 @@ class FileReadPaginationTest(unittest.TestCase):
         os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
         with self.assertRaisesRegex(ValueError, "二进制"):
             self.read(byte_offset=8, byte_limit=8)
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows file-change metadata')
+    def test_windows_metadata_clock_collision_does_not_reuse_text_validation(self):
+        import ctypes
+
+        path = self.root / 'text.txt'
+        original = b'first\n' + b'x' * 70000
+        path.write_bytes(original)
+        stamp = path.stat()
+        query = ctypes.windll.kernel32.GetFileInformationByHandleEx
+        real_fstat = os.fstat
+
+        def frozen_stat(descriptor):
+            current = real_fstat(descriptor)
+            return stamp if (current.st_dev, current.st_ino) == (stamp.st_dev, stamp.st_ino) else current
+
+        def frozen_clock(handle, kind, output, size):
+            result = query(handle, kind, output, size)
+            if result:
+                # Reproduce a real coarse-clock collision without sleeps.
+                ctypes.cast(output, ctypes.POINTER(ctypes.c_longlong))[3] = 123
+            return result
+
+        with mock.patch.object(tools_workspace.os, 'fstat', side_effect=frozen_stat), \
+             mock.patch.object(ctypes.windll.kernel32, 'GetFileInformationByHandleEx', frozen_clock):
+            first = self.read(byte_offset=0, byte_limit=8)
+            self.assertEqual(first['total_lines'], 2)
+            path.write_bytes(original[:-2] + b'\nx')
+            os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+            self.assertEqual(self.read(byte_offset=8, byte_limit=8)['total_lines'], 3)
+            path.write_bytes(original[:-1] + b'\x00')
+            os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+            with self.assertRaisesRegex(ValueError, '二进制'):
+                self.read(byte_offset=8, byte_limit=8)
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows file-change metadata')
+    def test_windows_without_journal_rescans_and_rejects_changed_binary_file(self):
+        path = self.root / 'text.txt'
+        original = b'first\n' + b'x' * 70000
+        path.write_bytes(original)
+        stamp = path.stat()
+        with mock.patch.object(tools_workspace, '_windows_file_usn', return_value=None):
+            with path.open('rb') as stream:
+                self.assertIsNone(tools_workspace._text_file_signature(path, stream))
+            self.read(byte_offset=0, byte_limit=8)
+            with mock.patch.object(tools_workspace, '_text_segments', wraps=tools_workspace._text_segments) as scans:
+                self.read(byte_offset=8, byte_limit=8)
+                scans.assert_called_once()
+            path.write_bytes(original[:-1] + b'\x00')
+            os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+            with self.assertRaisesRegex(ValueError, '二进制'):
+                self.read(byte_offset=8, byte_limit=8)
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows file-change metadata')
+    def test_windows_live_journal_marker_controls_cache_availability(self):
+        path = self.root / 'text.txt'
+        path.write_bytes(b'first\nsecond\n')
+        with path.open('rb') as stream:
+            signature = tools_workspace._text_file_signature(path, stream)
+        self.read(byte_offset=0, byte_limit=4)
+        with mock.patch.object(tools_workspace, '_text_segments', wraps=tools_workspace._text_segments) as scans:
+            self.read(byte_offset=4, byte_limit=4)
+            self.assertEqual(scans.call_count, int(signature is None))
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows file-change metadata')
+    def test_windows_usn_versions_and_unavailable_records(self):
+        import ctypes
+        import msvcrt
+
+        cases = []
+        for major, size, offset in ((2, 60, 24), (3, 76, 40)):
+            record = bytearray(size)
+            record[:4] = size.to_bytes(4, 'little')
+            record[4:6] = major.to_bytes(2, 'little')
+            record[offset:offset + 8] = (12345).to_bytes(8, 'little', signed=True)
+            cases.append((bytes(record), 12345))
+            record[offset:offset + 8] = b'\x00' * 8
+            cases.append((bytes(record), None))
+        cases.extend([(b'', None), (b'\x00' * 60, None),
+                      (b'\xff\xff\xff\xff\x02\x00' + b'\x00' * 54, None)])
+        for record, expected in cases:
+            def query(handle, code, version, version_size, output, capacity, returned, overlapped):
+                self.assertEqual(code, 0x900EB)
+                ctypes.memmove(output, record, len(record))
+                ctypes.cast(returned, ctypes.POINTER(ctypes.c_ulong))[0] = len(record)
+                return 1
+            with self.subTest(record=record[:8], expected=expected), \
+                 mock.patch.object(ctypes.windll.kernel32, 'DeviceIoControl', query), \
+                 mock.patch.object(msvcrt, 'get_osfhandle', return_value=123):
+                self.assertEqual(tools_workspace._windows_file_usn(mock.Mock()), expected)
+        with mock.patch.object(ctypes.windll.kernel32, 'DeviceIoControl', return_value=0), \
+             mock.patch.object(msvcrt, 'get_osfhandle', return_value=123):
+            self.assertIsNone(tools_workspace._windows_file_usn(mock.Mock()))
 
     def test_metadata_cache_is_bounded_and_stores_only_line_counts(self):
         for index in range(40):

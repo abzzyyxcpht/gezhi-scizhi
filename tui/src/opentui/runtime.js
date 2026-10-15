@@ -11,7 +11,7 @@ import { SWITCH_FRAMES, SWITCH_FRAME_MS } from "./motion/frames.js"
 import { createSessionController } from "./session-controller.js"
 import { completionCandidates, completionWindow } from "./components/slash-suggest.js"
 import { parseMentionQuery, listDirEntries, fileCandidates } from "./components/file-mention.js"
-import { PalettePanel } from "./components/palette.js"
+import { PalettePanel, palettePanelGeometry } from "./components/palette.js"
 import { ApprovalPanel, APPROVAL_OPTIONS } from "./components/approval-panel.js"
 import { ResearchStepsPanel, RESEARCH_STEPS } from "./components/research-steps.js"
 import { ResearchInsightPanel, insightPanelRows } from "./components/research-panels.js"
@@ -670,7 +670,11 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
       controllerRef.current?.setExpanded?.(next)
       setStatus(next ? "已展开工具详情（ctrl+o 折叠）" : "已折叠工具详情（ctrl+o 展开）")
     },
-    movePalette: (dir) => setPaletteIndex((i) => Math.max(0, i + dir)),
+    movePalette: (dir) => {
+      const count = paletteCommands(COMMANDS, pluginCommands, paletteQuery, workspaceMode,
+        { busy: streaming, remote: controllerRef.current?.connectionMode === "remote" }).length
+      setPaletteIndex((i) => Math.max(0, Math.min(i + dir, count - 1)))
+    },
     confirmPalette: () => {
       const rows = paletteCommands(COMMANDS, pluginCommands, paletteQuery, workspaceMode,
         { busy: streaming, remote: controllerRef.current?.connectionMode === "remote" })
@@ -1989,11 +1993,16 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
     }
   }, [displayLineCount])
 
+  const paletteGeom = palettePanelGeometry(dims.height, paletteOpen
+    ? paletteCommands(COMMANDS, pluginCommands, paletteQuery, workspaceMode,
+      { busy: streaming, remote: controllerRef.current?.connectionMode === "remote" }).length : 0,
+    draft.split("\n").length)
   // 面板节点：slash 补全（composer 上方内联）或 Ctrl+P 命令面板（互斥）
   const panel = paletteOpen
     ? h(PalettePanel, {
         query: paletteQuery,
         index: paletteIndex,
+        maxVisibleRows: paletteGeom.maxVisibleRows,
         commands: COMMANDS,
         plugins: pluginCommands,
         mode: workspaceMode,
@@ -2262,8 +2271,7 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
                   : reader
                     ? readerRows(reader) + 4
                     : paletteOpen
-      ? Math.min(8, paletteCommands(COMMANDS, pluginCommands, paletteQuery, workspaceMode,
-        { busy: streaming, remote: controllerRef.current?.connectionMode === "remote" }).length) + 3
+      ? paletteGeom.panelRows
       : suggestOpen
         ? candidates.length + 2
         : mentionOpen && mentionCandidates.length > 0

@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { upgradeFixture } from './upgrade-ui-fixture.js';
+import { paletteCommands } from '../src/command-palette.js';
+import { COMMANDS } from '../src/commands.js';
 
 export const captureCommandPaletteFrames = () => upgradeFixture(async t => {
   await t.press('保留光标草稿'); await t.press('\x1b[D');
@@ -25,6 +27,14 @@ export const captureCommandPaletteFrames = () => upgradeFixture(async t => {
   await t.press('\x1b'); await t.press('回到输入');
   assert.ok(t.frame().includes('回到输入'));
   t.resize(54, 18); await t.press('\u0010'); t.capture('palette-narrow', 54, 18);
+  const choices = paletteCommands(COMMANDS, [{ name: 'lab-probe', help: '实验室文献检索插件' }], '', 'general');
+  for (let index = 1; index <= 10; index++) {
+    await t.press('\x1b[B');
+    assert.ok(t.frame().includes(`❯ /${choices[index].name}`), `narrow palette keeps selected command ${index} visible`);
+    t.capture(`palette-narrow-selected-${index}`, 54, 18);
+  }
+  await t.press('\r');
+  assert.ok(t.frame().includes(`/${choices[10].name}`) && !t.frame().includes('搜索：'), 'the visible selection fills the composer');
   assert.ok(!t.calls.some(call => ['agent_run', 'create', 'workflow_run', 'plugin'].includes(call.cmd)));
 });
 

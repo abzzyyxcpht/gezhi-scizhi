@@ -116,6 +116,31 @@ _TEXT_METADATA_CACHE: OrderedDict[tuple, int] = OrderedDict()
 _TEXT_METADATA_LOCK = threading.Lock()
 
 
+def _windows_file_usn(stream) -> int | None:
+    """Read a journal sequence, or disable caching when no reliable marker exists."""
+    import ctypes
+    import msvcrt
+
+    query = ctypes.windll.kernel32.DeviceIoControl
+    query.argtypes = (ctypes.c_void_p, ctypes.c_ulong, ctypes.c_void_p, ctypes.c_ulong,
+                      ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong), ctypes.c_void_p)
+    query.restype = ctypes.c_int
+    versions = (ctypes.c_ushort * 2)(2, 3)
+    output = ctypes.create_string_buffer(4096)
+    returned = ctypes.c_ulong()
+    if not query(msvcrt.get_osfhandle(stream.fileno()), 0x900EB,
+                 ctypes.byref(versions), ctypes.sizeof(versions), output, len(output),
+                 ctypes.byref(returned), None):
+        return None
+    data = output.raw[:returned.value]
+    major = int.from_bytes(data[4:6], 'little')
+    minimum, offset = {2: (60, 24), 3: (76, 40)}.get(major, (0, 0))
+    if not minimum or not minimum <= int.from_bytes(data[:4], 'little') <= len(data):
+        return None
+    usn = int.from_bytes(data[offset:offset + 8], 'little', signed=True)
+    return usn if usn > 0 else None
+
+
 def _text_file_signature(path: Path, stream) -> tuple | None:
     """Metadata for cache invalidation, not a cryptographic content identity."""
     stat = os.fstat(stream.fileno())
@@ -123,7 +148,8 @@ def _text_file_signature(path: Path, stream) -> tuple | None:
                  stat.st_mtime_ns, stat.st_ctime_ns)
     if os.name == "nt":
         # Windows st_ctime may mean creation time on some Python versions.
-        # NT ChangeTime also changes when an editor restores the previous mtime.
+        # ChangeTime has clock granularity and can collide on rapid writes.
+        # A journal sequence distinguishes completed writes even at one tick.
         import ctypes
         import msvcrt
 
@@ -137,7 +163,10 @@ def _text_file_signature(path: Path, stream) -> tuple | None:
         info = BasicInfo()
         if not query(msvcrt.get_osfhandle(stream.fileno()), 0, ctypes.byref(info), ctypes.sizeof(info)):
             return None  # An unsupported filesystem can still use uncached scans.
-        signature += (info.changed,)
+        usn = _windows_file_usn(stream)
+        if usn is None:
+            return None
+        signature += (info.changed, usn)
     return signature
 
 

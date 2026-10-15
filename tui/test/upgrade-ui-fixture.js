@@ -179,7 +179,7 @@ export async function upgradeFixture(run, options = {}) {
   context.capture = (id, width = 80, height = 24, requireInput = true) => {
     const rows = context.frame().replace(/\n$/, '').split('\n');
     const text = rows.join('\n');
-    if (requireInput) assert.ok(text.includes('· 输入'), `${id}: composer remains accessible`);
+    if (requireInput) assert.ok(text.includes('· 输入'), `${id}: composer remains accessible\n${text}`);
     assert.ok(rows.length <= height, `${id}: ${rows.length} > ${height} rows\n${text}`);
     assert.ok(rows.every(line => stringWidth(line) <= width), `${id}: width`);
     context.frames.push({ id, width, height, text });
