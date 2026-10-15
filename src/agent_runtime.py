@@ -1467,7 +1467,7 @@ class AgentRuntime:
 
     def _run_child_driver(self, parent: str, child_id: str, spec: AgentSpec,
                           request: str) -> dict[str, Any]:
-        """以独立 AdaptiveDriver 循环执行子智能体（对标 Claude Code sidechain）。
+        """以独立 AdaptiveDriver 循环执行子智能体。
 
         独立 context window：system 前缀取 spec.prompt（编制表角色提示词），
         步数/token 预算为父预算的一半；子代理完整历史只写自己的 driver 状态

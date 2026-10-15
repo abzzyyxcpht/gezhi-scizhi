@@ -1,5 +1,5 @@
-// 全屏阅读器（/read digest|outline|cites|board|graph|ledger，Claude Code pager 对标）
-// Ink 版 reader 的 OpenTUI 移植：标题栏、行号、进度条、逐行/翻页滚动、
+// 全屏阅读器（/read digest|outline|cites|board|graph|ledger）
+// 阅读器支持：标题栏、行号、进度条、逐行/翻页滚动、
 // "/" 搜索（Enter 跳转、n/N 下一处/上一处）、q/Esc 返回。
 import React from "react"
 import stringWidth from "string-width"

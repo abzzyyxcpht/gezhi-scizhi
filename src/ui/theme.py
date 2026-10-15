@@ -1,4 +1,4 @@
-"""Shared semantic typography, Zai surfaces and native interaction states."""
+"""Shared semantic typography, surfaces and native interaction states."""
 from __future__ import annotations
 
 import flet as ft
@@ -109,12 +109,12 @@ def _scaled(size: float) -> float:
 
 # ---- 深色配色映射（与浅色 brand 同名字段、同语义）----
 DARK: dict[str, str] = {
-    # ZCode 中性深黑 + 蓝 accent（2026-10-09 对标重构：原青墨绿改中性灰蓝）
-    "BG": "#161616",         # 外壳与导航（ZCode --color-background 同款）
+    # 中性深色工作面与蓝色操作色。
+    "BG": "#161616",         # 外壳与导航
     "SURFACE": "#1F1F1F",    # 工作面
     "SURFACE_2": "#262626",  # 次级分组
     "SURFACE_3": "#303030",  # 表头、轻量标签
-    "INPUT": "#2B2B2B",      # Zai Dark 的输入、卡片与浮层
+    "INPUT": "#2B2B2B",      # 深色输入、卡片与浮层
     "CARD": "#2B2B2B",
     "MENU": "#2B2B2B",
     "POPOVER": "#2B2B2B",
@@ -124,7 +124,7 @@ DARK: dict[str, str] = {
     "BORDER": "#2E2E2E",
     "BORDER_2": "#777777",  # 输入框边界与深色面保持至少 3:1
     "HOVER": "#2A2A2A",
-    "ACTIVE": "#1E293B",     # 深蓝选中态（ZCode accent 深色 #001d3d 提亮一档）
+    "ACTIVE": "#1E293B",     # 深蓝选中态
     "TEXT": "#FAFAFA",
     # 文本与面保持独立角色，重绘保留角色，不再猜测相同 hex 的用途。
     "TEXT_2": "#A8A8A8",
@@ -239,6 +239,9 @@ def repaint(*roots) -> None:
         if not isinstance(control, ft.Control) or id(control) in seen:
             continue
         seen.add(id(control))
+        if getattr(control, '_scizhi_markdown_view', False):
+            control.refresh_appearance(_preferences, palette.dark)
+            continue
         if getattr(control, '_scizhi_code_preview', False):
             continue
         if isinstance(control, ft.Markdown):
@@ -574,6 +577,9 @@ def style_inputs(*roots) -> None:
         if control is None or id(control) in seen:
             continue
         seen.add(id(control))
+        if getattr(control, '_scizhi_markdown_view', False):
+            control.refresh_appearance(_preferences, palette.dark)
+            continue
         if getattr(control, '_scizhi_code_preview', False):
             continue
         if isinstance(control, ft.Markdown):

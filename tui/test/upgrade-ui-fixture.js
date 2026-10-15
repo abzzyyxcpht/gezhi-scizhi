@@ -1,5 +1,5 @@
 // UI 夹具（M4 后唯一引擎 OpenTUI）：testRender 驱动真 runtime + 全桩 Bridge。
-// 由 Ink 版移植：同一套 Bridge 桩与断言口径，输入/帧改走 opentui 测试工具。
+// Bridge 桩与断言共享同一契约，输入和帧通过 OpenTUI 测试工具驱动。
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';

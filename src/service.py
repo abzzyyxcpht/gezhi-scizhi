@@ -450,7 +450,7 @@ def export_artifacts(task_id: str, out_dir: str | Path) -> list[str]:
                               w.get("score", ""), w.get("reason", "")])
         written.append(str(p))
 
-    # 证据图谱 PNG（已生成则随包带走；确定性布局渲染，非 AI 生成）
+    # 证据图谱 PNG：随包导出已生成的确定性布局图像。
     graph_meta = art.get("_evidence_graph") or {}
     graph_src = graph_meta.get("file")
     if graph_src and Path(graph_src).exists():

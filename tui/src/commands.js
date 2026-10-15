@@ -8,7 +8,7 @@ import stringWidth from 'string-width';
 const widthSegments = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
 /**
- * 人工确认关口的内联菜单（对标顶级 Agent 的编号选择）：
+ * 人工确认关口的内联菜单：
  * 进入 waiting_human 时展示，输入对应数字回车即可执行。
  */
 export const REVIEW_MENU = [
@@ -26,7 +26,7 @@ export function matchMenu(raw, menu) {
 }
 
 // 格致工作台 · slash 命令注册表
-// 设计对标 Claude Code / Kimi CLI 的命令体系：/ 开头解析为命令，
+// 命令体系：/ 开头解析为命令，
 // 非 / 开头的整行输入视为研究方向（快速开任务）。命令只带元数据，
 // 执行器在 app.js（需要 bridge 与界面状态）。
 export const COMMANDS = [
@@ -94,7 +94,7 @@ export const COMMANDS = [
   { name: 'read',    args: '<面板>',          desc: '全屏阅读器（digest/outline/cites/board/graph/ledger）' },
   { name: 'reasoning', args: '[推理强度]',    desc: '查看或调整默认模型的推理强度' },
   { name: 'ledger',  args: '',                desc: '研究时间账（跨任务累计省时）' },
-  // ---- 科研创新面板（co-scientist / Consensus / Elicit / AI Scientist 对标）----
+  // ---- 科研创新面板----
   { name: 'hypotheses', args: '',              desc: '假设排行榜：证据加权 + 状态加成的竞争排序' },
   { name: 'consensus', args: '',               desc: '共识计量条：支持 / 背景 / 反驳 三段统计' },
   { name: 'matrix',  args: '',                 desc: '证据矩阵：记录 × 关系 × 缺口 × 下一问' },

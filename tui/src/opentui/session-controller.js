@@ -20,7 +20,7 @@ import { safeCommandEcho } from "../sensitive-text.js"
 
 const DEFAULT_AGENT = { general: "general", research: "research" }
 
-// /agent 角色前缀解析（Ink app.js parseAgentRequest 移植）：`/agent research <请求>` → 角色 research
+// /agent 角色前缀解析：`/agent research <请求>` → 角色 research
 const AGENT_NAMES = new Set(["general", "research", "pipeline", "literature", "extraction",
   "synthesis", "stats", "citation", "critic", "explore"])
 
@@ -89,7 +89,7 @@ export function renderEvents(events = [], { expanded = false } = {}) {
     if (ev.kind !== "assistant_delta") flushDelta()
     if (ev.kind === "assistant_message" || ev.kind === "user_message") {
       if (payload.text) lines.push({ text: payload.text, ...(ev.kind === "user_message" ? { user: true } : {}) })
-      // 论断-引用强绑定（Kosmos/PaperQA2 对标）：助手消息带 citations 时渲染引用角标行
+      // 论断-引用强绑定：助手消息带 citations 时渲染引用角标行
       const citations = ev.kind === "assistant_message" && Array.isArray(payload.citations) ? payload.citations : []
       citations.slice(0, 5).forEach((c, i) => {
         const label = c.title || c.id || c.doi || c.url || "来源未记录"
@@ -97,10 +97,10 @@ export function renderEvents(events = [], { expanded = false } = {}) {
         lines.push({ text: `  [${i + 1}] ${String(label).slice(0, 60)}${locator ? ` · ${String(locator).slice(0, 40)}` : ""}`, dim: true, kind: "citation" })
       })
     } else if (ev.kind === "assistant_delta") {
-      // 流式增量（Ink assistant_delta 对标）：连续 delta 合并为一行，边到边渲染
+      // 流式增量：连续 delta 合并为一行，边到边渲染
       deltaBuffer += payload.delta || payload.text || ""
     } else if (ev.kind === "subagent_status") {
-      // 子代理进度行（Ink transcript.subagentLine 对标）：◆ 运行 / ✔ 完成 / ✘ 失败
+      // 子代理进度行：◆ 运行 / ✔ 完成 / ✘ 失败
       // journal 口径是 type，bridge 事件口径是 kind：统一转换后复用活模块
       const spans = subagentLine({ type: "subagent_status", payload: ev.payload, timestamp: ev.timestamp })
       if (spans) lines.push({ text: spans.map((s) => s.t).join(""), dim: false, kind: "subagent" })
@@ -141,8 +141,8 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
   let currentTaskId = null // /open 后跟踪当前研究任务：阅读/池类命令带 task_id
   let lastLaunchPending = false
   let expanded = false // Ctrl+O 全局展开（工具调用详情）
-  let planMode = false // Plan 模式（Claude Code/dsh 对标：只读规划）
-  let goalText = "" // 研究目标（ZCode Goal mode 对标）：提交时注入上下文，footer 徽标常驻
+  let planMode = false // Plan 模式：只读规划
+  let goalText = "" // 研究目标：提交时注入上下文，footer 徽标常驻
 
   async function readMode() {
     await bridge.whenReady?.()
@@ -175,7 +175,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
       return { lines: [{ text: r.ok ? `✓ 已切换到${r.mode === "general" ? "通用" : "科研"}模式` : `✗ ${r.error}` }], mode: r.mode }
     }
     if (name === "goal") {
-      // 研究目标模式（ZCode Goal 对标）：设置后每次提交注入目标上下文
+      // 研究目标模式：设置后每次提交注入目标上下文
       const arg = (args || "").trim()
       if (arg === "off" || arg === "clear" || arg === "done") {
         goalText = ""
@@ -190,7 +190,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
       return { lines: [{ text: `◎ 研究目标已设置：${goalText}`.slice(0, 120) }, { text: "提交消息时将附带目标上下文；/goal off 清除", dim: true }] }
     }
     if (name === "fact") {
-      // 世界模型事实（Kosmos 对标）：add/support/challenge/del/list
+      // 世界模型事实：add/support/challenge/del/list
       const parts = (args || "").trim().split(/\s+/)
       const sub = parts[0] || "list"
       if (sub === "list") {
@@ -225,7 +225,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
       return { lines: [{ text: "用法：/fact add <论断> | support|challenge|del <ID> | list", dim: true }] }
     }
     if (name === "peer-review") {
-      // AI 审稿人（Sakana 对标）：对科研记录做确定性多维评分
+      // AI 审稿人：对科研记录做确定性多维评分
       const id = (args || "").trim()
       if (!id) return { lines: [{ text: "用法：/peer-review <科研记录ID>（/notebook 查看）", dim: true }] }
       const r = await bridge.call({ cmd: "peer_review", id }).catch((e) => ({ ok: false, error: String(e.message || e) }))
@@ -240,7 +240,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
       return { lines }
     }
     if (name === "reproduce") {
-      // 论文复现流水线（Claude 复现基准对标）：计划→人工确认→白名单执行→实验记录
+      // 论文复现流水线：计划→人工确认→白名单执行→实验记录
       const topic = (args || "").trim()
       if (!topic) return { lines: [{ text: "用法：/reproduce <论文课题或方向>", dim: true }] }
       const r = await bridge.call({ cmd: "workflow_run", workflow_id: "reproduce", topic }).catch((e) => ({ ok: false, error: String(e.message || e) }))
@@ -262,7 +262,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
       return { lines: [{ text: r?.ok ? `${name === "approve" ? "✓ 已允许" : "✓ 已拒绝"} ${callId}` : `✗ ${r?.error || "审批失败"}`, dim: !r?.ok }] }
     }
     if (name === "agent" || name === "spawn" || name === "review") {
-      // 智能体执行（Ink /agent|/spawn|/review 的 OpenTUI 等价）：角色前缀解析，新开会话
+      // 智能体执行：角色前缀解析，新开会话
       const text = (args || "").trim()
       if (!text) return { lines: [{ text: `用法：/${name} <任务请求>`, dim: true }] }
       const parsedAgent = parseAgentRequest(text, DEFAULT_AGENT[workspaceMode] || "research")
@@ -271,7 +271,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
       return launchAgent(parsedAgent.request, { agent, mode })
     }
     if (name === "queue" || name === "reviews" || name === "history") {
-      // 实验队列 / 复核收件箱 / 对话记录（Ink queue/review/history-commands 的 OpenTUI 等价）
+      // 实验队列 / 复核收件箱 / 对话记录
       // 复用活模块：重试标识、脱敏、分页身份校验全在模块内；busy 时也立即可用（本地命令优先于排队）
       const out = []
       let report = null
@@ -297,7 +297,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
       return { lines: out.length ? out : [{ text: "（无输出）", dim: true }] }
     }
     if (name === "session-export") {
-      // 远程会话导出（Ink remote-export 对标）：内容本地落盘，服务器路径永不采用
+      // 远程会话导出：内容本地落盘，服务器路径永不采用
       const parts = (args || "").trim().split(/\s+/).filter(Boolean)
       const id = parts[0] || currentSessionId || ""
       const format = (parts[1] || "markdown").toLowerCase()
@@ -314,7 +314,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
       }
     }
     if (name === "cancel-agent") {
-      // 取消当前/指定 Agent 会话（Ink 对齐；流式或等待中的回合均可取消）
+      // 取消当前/指定 Agent 会话（流式或等待中的回合均可取消）
       const id = (args || "").trim() || currentSessionId || ""
       if (!id) return { lines: [{ text: "✗ 当前没有进行中的会话", dim: true }] }
       const r = await bridge.call({ cmd: "agent_cancel", session_id: id }).catch((e) => ({ ok: false, error: String(e.message || e) }))
@@ -333,7 +333,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
       return { lines: [{ text: total > 0 ? `上下文占用 ${Math.round((used / total) * 100)}%（${used}/${total}）` : "上下文状态不可用", dim: !total }] }
     }
     if (name === "session-status" || name === "compact") {
-      // 会话模型/上下文/预算/等待原因（Ink research-commands 的 OpenTUI 等价）；compact 同族
+      // 会话模型/上下文/预算/等待原因；compact 同族
       const id = (args || "").trim() || currentSessionId || ""
       if ((args || "").trim().split(/\s+/).length > 1 || !/^[A-Za-z0-9_-]{1,128}$/.test(id)) {
         return { lines: [{ text: `用法：/${name} [会话ID]（无参数使用当前会话；/sessions 查看档案）`, dim: true }] }
@@ -345,7 +345,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
       return { lines: sessionStatusLines(r.status || { session_id: id }).map((text) => ({ text })) }
     }
     if (name === "cancel-agent") {
-      // 取消智能体会话（Ink /cancel-agent 的 OpenTUI 等价）：可带会话 ID，无参用当前会话
+      // 取消智能体会话：可带会话 ID，无参用当前会话
       const id = (args || "").trim() || currentSessionId
       if (!id) return { lines: [{ text: "✗ 当前没有进行中的会话", dim: true }] }
       const r = await bridge.call({ cmd: "agent_cancel", session_id: id }).catch((e) => ({ ok: false, error: String(e.message || e) }))
@@ -358,7 +358,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
         .catch((e) => ({ ok: false, error: String(e.message || e) }))
       if (!r?.ok) return { lines: [{ text: `✗ ${r?.error || "操作失败"}`, dim: true }] }
       if (name === "cancel") return { lines: [{ text: `✓ 已取消会话 ${id}` }] }
-      // 继续回执：有待审批调用时给出 /approve /deny 指引（Ink presentAgentResult 的 OpenTUI 等价）
+      // 继续回执：有待审批调用时给出 /approve /deny 指引
       const result = r.result || {}
       const lines = [{ text: `✓ 已继续会话 ${id}` }]
       if (result.pending) {
@@ -388,7 +388,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
       return { lines }
     }
     if (name === "skill") {
-      // 技能模式/启停（Ink workbench-commands 的 OpenTUI 等价）
+      // 技能模式/启停
       const m = (args || "").trim().split(/\s+/)
       if (m.length !== 2 || !["auto", "on", "off"].includes(m[1])) return { lines: [{ text: "用法：/skill <名> <auto|on|off>", dim: true }] }
       const r = await bridge.call(m[1] === "auto"
@@ -401,7 +401,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
         : `✗ ${r?.error || "操作失败"}`, dim: !r?.ok }] }
     }
     if (name === "context") {
-      // 执行上下文来源（Ink reader 的 OpenTUI 等价）：有会话读冻结清单，无会话只报规则发现
+      // 执行上下文来源：有会话读冻结清单，无会话只报规则发现
       if ((args || "").trim()) return { lines: [{ text: "用法：/context（当前会话的执行上下文；无会话时查看规则发现信息）", dim: true }] }
       if (currentSessionId) {
         const r = await bridge.call({ cmd: "session_status", session_id: currentSessionId }).catch((e) => ({ ok: false, error: String(e.message || e) }))
@@ -421,12 +421,12 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
       ] }
     }
     if ((name === "models" || name === "model") && !(args || "").trim()) {
-      // 科研模型配置（Ink ModelPicker 的 OpenTUI 等价）：本地开面板，远程交回主机
+      // 科研模型配置：本地开面板，远程交回主机
       if (bridge.connection().mode !== "local") return { lines: [{ text: "模型配置请在主机本机 TUI 或桌面操作。", dim: true }] }
       return { openModelPicker: true }
     }
     if (name === "activity") {
-      // 只读活动投影（Ink reader 的 OpenTUI 等价）：工具/子代理/子任务全景，不推断缺失
+      // 只读活动投影：工具/子代理/子任务全景，不推断缺失
       const sid = (args || "").trim() || currentSessionId || currentTaskId || ""
       if (!sid) return { lines: [{ text: "请先打开会话，再查看只读活动。", dim: true }] }
       try {
@@ -437,7 +437,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
       }
     }
     if (name === "outputs") {
-      // 归档工具输出阅读器（Ink output-commands 的 OpenTUI 等价）：字节偏移 list/read/search，读取不重放工具
+      // 归档工具输出阅读器：字节偏移 list/read/search，读取不重放工具
       const sid = currentSessionId
       if (!sid) return { lines: [{ text: "先用 /session <ID> 选择会话。", dim: true }] }
       const parsed = parseOutputRequest(args, sid)
@@ -458,7 +458,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
       }
     }
     if (name === "setup" || name === "demo") {
-      // 首次运行检查 / 离线合成样例（Ink onboarding 的 OpenTUI 等价）：只读 readiness，不写设置不开会话
+      // 首次运行检查 / 离线合成样例：只读 readiness，不写设置不开会话
       if ((args || "").trim()) return { lines: [{ text: `用法：/${name}`, dim: true }] }
       try {
         const r = await bridge.call({ cmd: name === "setup" ? "product_readiness" : "product_demo" })
@@ -506,7 +506,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
       return { lines: rows.length ? rows : [{ text: "（暂无 Agent）", dim: true }] }
     }
     if (name === "new" && (args || "").trim()) {
-      // 建任务并启动流水线（对齐 Ink createTaskFlow）：本地 create，远程 workflow_run
+      // 建任务并启动流水线：本地 create，远程 workflow_run
       const [topic, keywords = ""] = (args || "").split(/\s+--\s+/)
       const local = bridge.connection().mode === "local"
       const r = await bridge.call(local
@@ -527,7 +527,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
       return { lines: [], clear: true, notice: "已新建会话（保留当前模式）" }
     }
     if (name === "open") {
-      // 打开任务（Ink /open 的 OpenTUI 等价）：走引擎 command_center，随后探测人工确认关口
+      // 打开任务：走引擎 command_center，随后探测人工确认关口
       const target = (args || "").trim()
       if (!target) return { lines: [{ text: "用法：/open <任务ID|序号>", dim: true }] }
       const r = await bridge.call({ cmd: "command", text: `/open ${target}` }).catch((e) => ({ ok: false, error: String(e.message || e) }))
@@ -544,7 +544,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
       return { lines: rows.length ? rows : [{ text: "✓ /open 已完成", dim: true }], taskId }
     }
     if (name === "session") {
-      // 全屏阅读完整会话快照（Ink workbench-commands 的 OpenTUI 等价）
+      // 全屏阅读完整会话快照
       const id = (args || "").trim()
       if (!id) return { lines: [{ text: "用法：/session <会话ID>", dim: true }] }
       const r = await bridge.call({ cmd: "session_snapshot", session_id: id }).catch((e) => ({ ok: false, error: String(e.message || e) }))
@@ -562,7 +562,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
       return { lines: rows.length ? rows : [{ text: "（暂无会话）", dim: true }] }
     }
     if (name === "steer") {
-      // 回合中追加指导（kimi-code Ctrl+S 对标）：先取当前回合，绑定 expected_turn_id 防错绑
+      // 回合中追加指导：先取当前回合，绑定 expected_turn_id 防错绑
       if (!currentSessionId) return { lines: [{ text: "✗ 当前没有进行中的会话", dim: true }] }
       if (!args) return { lines: [{ text: "用法：/steer <指导意见>", dim: true }] }
       const st = await bridge.call({ cmd: "steer_status", session_id: currentSessionId }).catch(() => ({ ok: false }))
@@ -613,7 +613,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
       return { lines: [{ text: last, copy: true }] }
     }
     if (name === "read") {
-      // 全屏阅读器（Ink reader 的 OpenTUI 移植）：拉全文后交壳层开 pager
+      // 全屏阅读器：拉全文后交壳层开 pager
       const verb = (args || "").trim()
       const titles = {
         digest: "摘要稿", outline: "综述框架", cites: "参考文献",
@@ -636,11 +636,11 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
       }
     }
     if (name === "palette" && !(args || "").trim()) {
-      // 命令面板（Ink /palette 的 OpenTUI 等价）：交壳层以空查询打开
+      // 命令面板：交壳层以空查询打开
       return { openPalette: true }
     }
     if (name === "reasoning") {
-      // 思考强度（Ink ReasoningPicker 的命令行等价）：客户端直写 settings_save
+      // 思考强度：客户端直写 settings_save
       const value = (args || "").trim()
       if (!value) {
         const r = await bridge.call({ cmd: "settings_get" }).catch(() => ({ ok: false }))
@@ -680,8 +680,8 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
       const text = r.text || r.message || (r.result ? JSON.stringify(r.result).slice(0, 160) : "✓ 已完成")
       return { lines: [{ text }] }
     }
-    // 兜底：Python command_center 斜杠分发（科研流水线/agent 会话/feature 命令全家族；
-    // Ink 版走同一入口，行为一致）。响应 text 按行渲染，session_id 自动接管。
+    // 兜底：Python command_center 斜杠分发处理科研流水线、会话与扩展命令。
+    // 响应 text 按行渲染，session_id 自动接管。
     const commandText = raw || `/${name}${args ? ` ${args}` : ""}`
     const r = await bridge.call({ cmd: "command", text: commandText, ...(currentTaskId ? { task_id: currentTaskId } : {}) }).catch((e) => ({ ok: false, error: String(e.message || e) }))
     if (!r?.ok) return { lines: [{ text: `✗ /${name}：${r?.error || "执行失败"}`, dim: true }] }
@@ -695,7 +695,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
   async function submit(text, { onUpdate, prefix } = {}) {
     const parsed = parseCommand(text)
     if (parsed) return runCommand(parsed, text)
-    // 研究目标注入（ZCode Goal 对标）：目标常驻上下文，每轮提交自评达成度
+    // 研究目标注入：目标常驻上下文，每轮提交自评达成度
     const goalPrefix = goalText
       ? `[研究目标] ${goalText}\n[完成标准] 完成后对照目标自评达成情况并指出差距`
       : ""
@@ -723,13 +723,13 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
     if (result.session_id) currentSessionId = result.session_id
     if (!result.session_id) return { lines: [{ text: "（无会话 ID，疑似 headless 回执）", dim: true }] }
     lastLaunchPending = Boolean(result.launch_pending)
-    // 增量流式：cursor 分页只取新事件，边到边渲染（吸取 dsh 长会话渲染血案的教训）
+    // 增量流式：cursor 分页只取新事件，边到边渲染
     let cursor = null
     let streamed = 0
     let streamUnsupported = false // 引擎不支持 session_events（legacy 回退：只给最终回复）
     let finalAnswer = typeof result.answer === "string" ? result.answer : ""
     const drain = async () => {
-      // 同一游标失败重试一次（对齐 Ink：临时故障不丢事件页，也不推进游标）
+      // 同一游标失败重试一次（临时故障不丢事件页，也不推进游标）
       for (let attempt = 0; attempt < 2; attempt++) {
         const page = await bridge.call({ cmd: "session_events", session_id: result.session_id, limit: 60, cursor })
           .catch((e) => ({ ok: false, error: String(e.message || e) }))
@@ -760,7 +760,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
     const snap = await bridge.call({ cmd: "session_snapshot", session_id: result.session_id }).catch(() => ({ ok: false }))
     const lines = []
     if (streamUnsupported) {
-      // legacy 引擎回退（Ink agent-stream legacy 对标）：如实说明无事件流，展示最终回复
+      // legacy 引擎回退：如实说明无事件流，展示最终回复
       lines.push({ text: finalAnswer || snap?.snapshot?.answer || "（引擎未返回事件流或最终回复）" })
       lines.push({ text: "（当前引擎不支持实时事件流；已展示最终回复，事件回放请升级引擎）", dim: true })
       return { lines, sessionId: result.session_id }
@@ -803,7 +803,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
     }
     if (status?.ok && status.status) {
       const s = status.status
-      sections.push({ title: "会话", lines: [{ text: `${currentSessionId} · ${s.status || "?"}` }, { text: `上下文 ${s.context?.used ?? "?"}/${s.context?.total ?? "?"}` }] })
+      sections.push({ title: "会话", lines: [{ text: `${currentSessionId} · ${s.status || "?"}` }, { text: `上下文 ${s.context?.input_tokens ?? "?"}/${s.context?.limit_tokens ?? "?"}` }] })
     }
     return sections
   }
@@ -813,7 +813,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
     if (!currentSessionId) return null
     const sid = currentSessionId
     const snap = await bridge.call({ cmd: "session_snapshot", session_id: sid }).catch(() => ({ ok: false }))
-    // 陈旧响应守卫（Ink late-scenario 对标）：悬挂快照返回时若已切换会话，不得替换当前审批
+    // 陈旧响应守卫：悬挂快照返回时若已切换会话，不得替换当前审批
     if (currentSessionId !== sid) return null
     const s = snap?.snapshot
     if (s?.status === "waiting_approval" && s.pending) {
@@ -840,7 +840,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
     return { ok: Boolean(r?.ok), error: r?.error }
   }
 
-  // Subagent（ZCode 下钻对标）：计划列表 + 详情
+  // Subagent：计划列表 + 详情
   async function subagents() {
     const r = await bridge.call({ cmd: "swarm_list", limit: 20 }).catch(() => ({ ok: false }))
     if (!r?.ok) return []
@@ -858,22 +858,24 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
     return r.swarm || r.plan || null
   }
 
-  // 上下文分解（dsh ContextMeter 对标）：消息/工具schema/预留/上限
+  // 上下文分解：消息/工具schema/预留/上限
   async function contextBreakdown() {
-    if (!currentSessionId) return null
-    const r = await bridge.call({ cmd: "session_status", session_id: currentSessionId }).catch(() => ({ ok: false }))
+    const sid = currentSessionId
+    if (!sid) return null
+    const r = await bridge.call({ cmd: "session_status", session_id: sid }).catch(() => ({ ok: false }))
     const c = r?.status?.context
-    if (!c) return null
+    if (!r?.ok || !c || sid !== currentSessionId || (r.status.session_id && r.status.session_id !== sid)) return null
+    const count = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null
     return {
-      messages: Number(c.tokens ?? 0),
-      tools: Number(c.schema_tokens ?? 0),
-      input: Number(c.input_tokens ?? 0),
-      reserve: Number(c.output_reserve_tokens ?? 0),
-      limit: Number(c.limit_tokens ?? 0),
+      messages: count(c.tokens),
+      tools: count(c.schema_tokens),
+      input: count(c.input_tokens),
+      reserve: count(c.output_reserve_tokens),
+      limit: count(c.limit_tokens),
     }
   }
 
-  // --continue：恢复最近 Agent 会话（Ink 版 resumeLatest 对标）
+  // --continue：恢复最近 Agent 会话
   async function resumeLatest() {
     try {
       await bridge.whenReady?.()
@@ -888,7 +890,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
     }
   }
 
-  // shell 模式（kimi-code `!` 对标）：项目根目录内执行，输出封顶 10 行
+  // shell 模式：项目根目录内执行，输出封顶 10 行
   async function shell(command) {
     const r = await bridge.call({ cmd: "shell_exec", command }).catch((e) => ({ ok: false, error: String(e.message || e) }))
     if (!r?.ok) return { lines: [{ text: `✗ ${r?.error || "执行失败"}`, dim: true }] }
@@ -902,21 +904,21 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
   }
 
   // ---- 科研分析面板（数据来自既有 bridge 命令，Python 端零改动）----
-  /** 假设排行榜（co-scientist 锦标赛对标） */
+  /** 假设排行榜 */
   async function hypotheses() {
     const r = await bridge.call({ cmd: "notebook_list", kind: "hypothesis" }).catch(() => ({ ok: false }))
     if (!r?.ok) return []
     return rankHypotheses(r.records || [])
   }
 
-  /** 共识计量（Consensus Meter 对标）：支持/背景/反驳 三段统计 */
+  /** 共识计量：支持/背景/反驳 三段统计 */
   async function consensus() {
     const r = await bridge.call({ cmd: "evidence_brief" }).catch(() => ({ ok: false }))
     if (!r?.ok) return null
     return consensusFromBrief(r.brief || r)
   }
 
-  /** 证据矩阵（Elicit 对标）：记录 × 关系计数 × 缺口 × 下一问 */
+  /** 证据矩阵：记录 × 关系计数 × 缺口 × 下一问 */
   async function matrix() {
     const r = await bridge.call({ cmd: "evidence_brief" }).catch(() => ({ ok: false }))
     const records = r?.brief?.records || r?.records || []
@@ -931,14 +933,14 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
     }))
   }
 
-  /** 实验树（AI Scientist-v2 对标）：related_ids 父子森林 */
+  /** 实验树：related_ids 父子森林 */
   async function experimentTree() {
     const r = await bridge.call({ cmd: "notebook_list" }).catch(() => ({ ok: false }))
     if (!r?.ok) return []
     return buildExperimentTree(r.records || [])
   }
 
-  /** 世界模型事实卡片（Kosmos 对标）：跨任务共享事实 */
+  /** 世界模型事实卡片：跨任务共享事实 */
   async function facts() {
     const r = await bridge.call({ cmd: "world_fact_list" }).catch(() => ({ ok: false }))
     if (!r?.ok) return []
@@ -1055,7 +1057,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
     return { goal: goalText, stages, counts: timelineCounts(stages) }
   }
 
-  /** 研究待办面板（Ctrl+T，Claude Code toggleTodos 对标） */
+  /** 研究待办面板（Ctrl+T） */
   async function todos() {
     const r = await bridge.call({ cmd: "todo_list" }).catch(() => ({ ok: false }))
     if (!r?.ok) return []
@@ -1073,7 +1075,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
     return { ok: Boolean(r?.ok), error: r?.error }
   }
 
-  /** 新颖性检测（FutureHouse Owl 对标）：特化 prompt 走普通 agent 回合 */
+  /** 新颖性检测：特化 prompt 走普通 agent 回合 */
   async function novelty(topic) {
     const text = String(topic || "").trim()
     if (!text) return { lines: [{ text: "用法：/novelty <课题或方向>", dim: true }] }
@@ -1081,13 +1083,13 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
     return submit(prompt)
   }
 
-  /** 研究目标（ZCode Goal mode 对标）：设置后每次提交注入目标上下文 */
+  /** 研究目标：设置后每次提交注入目标上下文 */
   function setGoal(text) {
     goalText = String(text || "").trim().slice(0, 500)
     return goalText
   }
 
-  // ---- 模型选择器（/models|/model，Ink useModelPicker 的控制器等价） ----
+  // ---- 模型选择器（/models|/model） ----
   let picker = null // {stage, focus, loading, saving, catalog, index, effort, changedEffort, error}
   let pickerSeq = 0
   const pickerListeners = new Set()
@@ -1108,7 +1110,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
     const connection = pickerIdentity()
     const valid = () => pickerSeq === serial && connection === pickerIdentity()
     if (bridge.connection().mode !== "local") { picker = null; return { remote: true } }
-    // 同步先进入 loading 态（Esc 可取消；迟到目录不得复活面板，对齐 Ink open 语义）
+    // 同步先进入 loading 态（Esc 可取消；迟到目录不得复活面板）
     picker = { stage, focus: "model", loading: true, catalog: null, index: 0, effort: "auto", error: null }
     void (async () => {
       try {

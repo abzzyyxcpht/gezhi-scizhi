@@ -1,6 +1,6 @@
 // 人工确认关口菜单 + 回看锚定（OpenTUI，upgradeFixture 驱动）：
 // /open 命中 waiting_human → 编号菜单弹出（数字直选执行 REVIEW_MENU 映射命令）→
-// Esc 收起后可重新 /open 呼出；回看中流式新行到达视口不漂移（ZCode 行为）。
+// Esc 收起后可重新 /open 呼出；回看中流式新行到达视口不漂移。
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

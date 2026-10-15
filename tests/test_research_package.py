@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import copy
 import unittest
 import zipfile
 from pathlib import Path
@@ -32,6 +33,9 @@ def _seed_task(topic: str = "测试课题") -> TaskContext:
 
 class ResearchPackageTest(unittest.TestCase):
     def setUp(self):
+        settings_patch = mock.patch('src.settings.load', return_value={})
+        settings_patch.start()
+        self.addCleanup(settings_patch.stop)
         self.ctx = _seed_task()
         self.tmp = Path(__file__).parent / "_pkg_tmp"
         self.tmp.mkdir(exist_ok=True)
@@ -93,6 +97,62 @@ class ResearchPackageTest(unittest.TestCase):
         self.assertNotIn("sk-super-secret", json.dumps(manifest, ensure_ascii=False))
         self.assertNotIn("emb-secret", json.dumps(manifest, ensure_ascii=False))
         self.assertEqual(settings["llm_base_url"], "https://api.example.com/v1")
+
+    def test_package_redacts_connection_keys_without_mutating_settings(self):
+        original = {
+            'llm_api_key': 'fake-primary-secret',
+            'embedding_api_key': '',
+            'model_connections': [
+                {'id': 'remote', 'label': 'Research', 'protocol': 'responses',
+                 'base_url': 'https://models.example.org/v1', 'api_key': 'fake-nested-secret'},
+                {'id': 'local', 'base_url': 'http://localhost:11434', 'api_key': ''},
+            ],
+            'model_profiles': [{'id': 'reasoner', 'connection_id': 'remote', 'model': 'research-model'}],
+            'model_routes': {'review': 'reasoner'},
+            'agent_token_budget': 100000,
+        }
+        unchanged = copy.deepcopy(original)
+        with mock.patch('src.settings.load', return_value=original):
+            result = build_package(self.ctx.task_id, self.tmp)
+        self.assertEqual(original, unchanged)
+        safe = result['manifest']['settings']
+        self.assertIs(safe['llm_api_key'], True)
+        self.assertIs(safe['embedding_api_key'], False)
+        self.assertIs(safe['model_connections'][0]['api_key'], True)
+        self.assertIs(safe['model_connections'][0]['has_api_key'], True)
+        self.assertIs(safe['model_connections'][1]['api_key'], False)
+        self.assertIs(safe['model_connections'][1]['has_api_key'], False)
+        self.assertEqual(safe['model_profiles'], original['model_profiles'])
+        self.assertEqual(safe['model_routes'], original['model_routes'])
+        self.assertEqual(safe['agent_token_budget'], 100000)
+        safe['model_profiles'][0]['model'] = 'changed export only'
+        self.assertEqual(original, unchanged)
+        with zipfile.ZipFile(result['zip_path']) as archive:
+            for name in archive.namelist():
+                data = archive.read(name)
+                self.assertNotIn(b'fake-primary-secret', data, name)
+                self.assertNotIn(b'fake-nested-secret', data, name)
+
+    def test_legacy_endpoint_credentials_are_omitted_from_manifest(self):
+        original = {
+            'llm_base_url': 'https://fake-user:fake-password@api.example.org/v1?key=fake-query#fake-fragment',
+            'embedding_base_url': 'https://embed.example.org/v1?api-version=2026&signature=fake-signature',
+            'model_connections': [{'id': 'legacy-file',
+                                   'base_url': 'https://old-user:old-pass@old.example.org/v1?token=old-token',
+                                   'api_key': 'fake-legacy-key'}],
+        }
+        unchanged = copy.deepcopy(original)
+        with mock.patch('src.settings.load', return_value=original):
+            manifest = build_manifest(self.ctx)
+        self.assertEqual(original, unchanged)
+        safe = manifest['settings']
+        self.assertEqual(safe['llm_base_url'], 'https://api.example.org/v1')
+        self.assertEqual(safe['embedding_base_url'], 'https://embed.example.org/v1')
+        self.assertEqual(safe['model_connections'][0]['base_url'], 'https://old.example.org/v1')
+        text = json.dumps(manifest)
+        for secret in ('fake-user', 'fake-password', 'fake-query', 'fake-fragment',
+                       'fake-signature', 'old-user', 'old-pass', 'old-token', 'fake-legacy-key'):
+            self.assertNotIn(secret, text)
 
     def test_unknown_task_raises_clear_error(self):
         with self.assertRaises(ValueError):

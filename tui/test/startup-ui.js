@@ -1,4 +1,4 @@
-// 启动屏（Ink startup-ui 的 OpenTUI 移植，组件级）：诚实连接态、失败显式可重试、
+// 启动屏：诚实连接态、失败显式可重试、
 // 多姿态采样、身份常在、80x24 有界；连接期间输入可编辑属 runtime 行为（夹具层已覆盖）。
 import assert from 'node:assert/strict';
 import React from 'react';

@@ -631,8 +631,8 @@ class SettingsCenter:
 
     def record_rows(self, rows, title, detail, edit):
         if not rows:
-            return [ft.Container(content=self.text("尚无记录。填写下方表单后保存。"), padding=14, bgcolor=palette.SURFACE_2, border_radius=6)]
-        return [ft.Container(padding=ft.Padding(12, 10, 12, 10), bgcolor=palette.SURFACE_2, border_radius=6,
+            return [ft.Container(content=self.text("尚无记录。填写下方表单后保存。"), padding=14, bgcolor=palette.SURFACE_2, border_radius=ui_theme.radius('panel'))]
+        return [ft.Container(padding=ft.Padding(12, 10, 12, 10), bgcolor=palette.SURFACE_2, border_radius=ui_theme.radius('panel'),
             content=ft.Row([ft.Column([ft.Text(title(row), size=13, color=palette.TEXT, max_lines=2),
                 ft.Text(detail(row), size=11, color=palette.TEXT_2, max_lines=2)], expand=True),
                 ft.TextButton("编辑", on_click=lambda e, r=row: edit(r))], spacing=8)) for row in rows]
@@ -670,7 +670,7 @@ class SettingsCenter:
             *[ft.Container(content=ft.Column([ft.Text(a.get("title", a.get("name", "")), size=14, color=palette.TEXT,
                         max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                 self.text(a.get("description", "")), self.text("工具 · " + " / ".join(a.get("tools", [])))]),
-                padding=14, bgcolor=palette.SURFACE_2, border_radius=6) for a in agents]]
+                padding=14, bgcolor=palette.SURFACE_2, border_radius=ui_theme.radius('panel')) for a in agents]]
 
     def build_skills(self):
         rows = self._read("skills_list", "skills")
@@ -919,6 +919,10 @@ def apply_appearance(*roots):
             original = getattr(node, '_scizhi_original_spacing', node.spacing)
             node._scizhi_original_spacing = original
             node.spacing = round(original * factor, 1)
+        if getattr(node, '_scizhi_markdown_view', False):
+            # style_inputs refreshed the view from the current preference snapshot.
+            # Its child previews must not reload their older construction options.
+            continue
         for attr in ('controls', 'content', 'actions', 'tabs', 'leading', 'trailing', 'title', 'subtitle', 'label'):
             child = getattr(node, attr, None)
             if isinstance(child, (list, tuple)):

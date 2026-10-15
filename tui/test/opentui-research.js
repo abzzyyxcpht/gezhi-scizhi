@@ -146,7 +146,7 @@ assert((review.lines || []).some((l) => String(l.text).includes("总评 4.2")), 
 assert((review.lines || []).some((l) => String(l.text).includes("追加观察记录")), "/peer-review 建议渲染")
 assert((review.lines || []).some((l) => String(l.text).includes("启发式评分")), "/peer-review 边界声明")
 
-// 引用角标（Kosmos 强绑定对标）
+// 引用角标
 const cited = renderEvents([
   { kind: "assistant_message", payload: { text: "结论：X 成立", citations: [
     { title: "文献A", doi: "10.1/a" }, { title: "文献B", url: "https://x.cn/b" },

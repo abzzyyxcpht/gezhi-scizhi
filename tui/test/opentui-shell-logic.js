@@ -65,7 +65,7 @@ assert(new Set(seq).size === 3, "SWRR 平滑覆盖全部技巧（不错位重复
 assert(seq.filter((i) => i === 0).length >= 5, "SWRR 权重比例合理（0 号占多数）")
 assert(createTipRotator([]).indexAt(0) === -1, "空技巧表安全")
 
-assert(formatContextUsage(128400, 272000) === "context: 47% (128.4K/272K)", "上下文占用文案（ZCode 紧凑数字）")
+assert(formatContextUsage(128400, 272000) === "context: 47% (128.4K/272K)", "上下文占用文案")
 assert(formatContextUsage(500, 68000) === "context: 1% (500/68K)", "小数值不缩写")
 assert(clipSlot("D:\\deeplearning\\基于通用智能体的AI科研智能体应用开发", 16).endsWith("…"), "长 cwd 槽位裁剪")
 assert(clipSlot("◇ 通用", 10) === "◇ 通用", "短槽位不裁剪")

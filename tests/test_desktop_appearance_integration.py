@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -60,3 +61,28 @@ def test_external_preferences_apply_once_without_rebuilding_session(desk):
         assert not ui.refresh_appearance_preferences()
     assert ui.agent_request.value == 'unsent'
     assert ui.settings_center.forms['appearance']['ui_font_size'].value == '16'
+
+
+def test_reduced_motion_stops_pending_native_busy_indicators(desk):
+    ui, page = desk
+    page.run_thread.side_effect = lambda *_: None
+    ui.load_data_file(Path('sample.csv'))
+    ui.run_doctor_ui(None)
+    indicators = [ui.stats_area.controls[0].controls[0], ui.doctor_col.controls[0].controls[0]]
+    saved = {**settings.load(), 'ui_animations': False}
+    with mock.patch.object(settings, 'load', return_value=saved):
+        ui.workspace_settings_saved()
+        for indicator in indicators:
+            assert isinstance(indicator, ft.Stack)
+            spinner, idle = indicator.controls
+            assert not spinner.visible
+            assert idle.visible
+        assert all(stroke.animate_opacity is None for stroke in ui.thinking_strokes)
+        ui.load_data_file(Path('another.csv'))
+        spinner, idle = ui.stats_area.controls[0].controls[0].controls
+        assert not spinner.visible
+        assert idle.visible
+        saved['ui_animations'] = True
+        ui.workspace_settings_saved()
+        assert spinner.visible
+        assert not idle.visible

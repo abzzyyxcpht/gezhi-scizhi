@@ -1,4 +1,4 @@
-// Subagent 面板与只读下钻视图（ZCode subagent-view 对标）
+// Subagent 面板与只读下钻视图
 import React from "react"
 import { TOKENS } from "../theme/tokens.js"
 import { SYMBOLS, HINTS } from "../theme/symbols.js"

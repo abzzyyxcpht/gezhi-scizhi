@@ -1,4 +1,4 @@
-// 研究待办面板（Ctrl+T，Claude Code toggleTodos 对标）：只读列表 + /todo 引导
+// 研究待办面板（Ctrl+T）：只读列表 + /todo 引导
 import React from "react"
 import { TOKENS } from "../theme/tokens.js"
 import { SYMBOLS } from "../theme/symbols.js"

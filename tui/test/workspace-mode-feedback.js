@@ -1,4 +1,4 @@
-// 模式切换反馈（Ink workspace-mode-feedback 的 OpenTUI 移植）：启动设置不是切换回执、
+// 模式切换反馈：启动设置不是切换回执、
 // 成功切换有明确确认、失败保留已提交模式徽标并可重试。Ink 版测 WorkspaceModeHeader 组件
 // （过渡帧节拍/卸载计时器随组件删除）；OpenTUI 等价契约经真 runtime 断言，reducedMotion 直切。
 import assert from 'node:assert/strict';

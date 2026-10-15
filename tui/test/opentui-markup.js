@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import stringWidth from 'string-width'
 import { prepareTranscriptRows, markupSpans } from '../src/opentui/components/markup-lines.js'
 import { DiffView } from '../src/opentui/components/diff-view.js'
 import { applyTheme } from '../src/opentui/theme/theme.js'
@@ -33,5 +34,20 @@ const diff = DiffView({ diff: '--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b', width: 50
 assert.equal(diff.props.showLineNumbers, false)
 assert.equal(diff.props.wrapMode, 'char')
 assert.equal(diff.props.lineNumberFg, TOKENS.diffLineNumber)
+// Long responses and submitted prompts must remain readable when scrolling.
+for (const user of [false, true]) {
+  const text = '科研证据 é 👩‍🔬 ' + 'long research detail '.repeat(7)
+  const wrapped = prepareTranscriptRows([{ text, user }], 20, { code_wrap_long_lines: false })
+  assert.equal(wrapped.map((row) => row.text).join(''), text, 'prose and user input preserve every character')
+  assert.ok(wrapped.length > 1, 'narrow text is exposed as scrollable rows')
+  assert.ok(wrapped.every((row) => stringWidth(row.text) <= (user ? 18 : 20)), 'user message padding is included in the row width')
+  assert.ok(wrapped.every((row) => !row.text.startsWith('\u200d')), 'wrapping preserves grapheme clusters')
+}
+const tabbed = 'ABCDEFGHIJKLMNOPQRSTUVWXYZABCD'.split('').join('\t')
+const tabRows = prepareTranscriptRows([{ text: tabbed }], 18)
+assert.equal(tabRows.map((row) => row.text).join(''), tabbed.replaceAll('\t', '    '), 'prose tab expansion matches the terminal display width')
+assert.ok(tabRows.length > 4 && tabRows.every((row) => stringWidth(row.text) <= 18), 'tabbed text has enough physical rows to scroll through every character')
+const tabCode = prepareTranscriptRows([{ text: '```text\nA\tB\tC\tD\tE\n```' }], 18, { code_show_line_numbers: false, code_wrap_long_lines: false }).find((row) => row.code)
+assert.ok(!tabCode.text.includes('\t') && tabCode.text.endsWith('…'), 'unwrapped code also expands tabs before truncating')
 applyTheme('dark')
 console.log('opentui-markup: ALL_PASS')

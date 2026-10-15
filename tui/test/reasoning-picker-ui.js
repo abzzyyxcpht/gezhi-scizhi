@@ -1,4 +1,4 @@
-// 思考强度档位（Ink reasoning-picker-ui 的 OpenTUI 移植）：
+// 思考强度档位：
 // REASONING_EFFORTS 全档位可设置、未知值拒绝、auto 与具名档位语义区分（控制器层）。
 // 注：Ink 的交互式档位选择面板由 /reasoning 命令 + 模型配置面板（/models 思考档位）承接，
 // 面板交互由 model-picker-ui 覆盖。

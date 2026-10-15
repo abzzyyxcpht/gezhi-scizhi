@@ -1,4 +1,4 @@
-// 下一轮队列（Ink queue-ui 的 OpenTUI 移植）：忙时队列/历史/复核仍立即可用、
+// 下一轮队列：忙时队列/历史/复核仍立即可用、
 // 入队重试沿用同一投递标识、busy 所有权不被清除、普通语言在忙时排队。
 import assert from 'node:assert/strict';
 import path from 'node:path';

@@ -1,4 +1,4 @@
-"""研究档案库：科研产物的 git 版本管理（对标顶级 Agent 的仓库意识）。
+"""研究档案库：科研产物的 Git 版本管理。
 
 每次 /export 把任务产物复制进 data/research_repo/tasks/<task_id>/ 并以
 Gezhi 身份自动 commit——研究过程从此有 diff、有历史、可回滚，与 F5

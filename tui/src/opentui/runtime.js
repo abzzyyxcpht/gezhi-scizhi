@@ -94,7 +94,7 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
     { text: "格致 SciZhi（OpenTUI 引擎）· 输入消息回车发送，Ctrl+G 切换模式" },
   ])
   const [sidebarSections, setSidebarSections] = useState([])
-  // 忙时排队的消息（ZCode QueuedInputPanel）；ref 为权威数据，state 仅渲染镜像
+  // 忙时排队的消息；ref 为权威数据，state 仅渲染镜像
   const queuedRef = useRef([])
   const [queued, setQueued] = useState([])
   const flushingRef = useRef(false)
@@ -148,10 +148,10 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
   const [historySearch, setHistorySearch] = useState(null) // 历史搜索 {query, index}（Ctrl+R）
   const [todosOpen, setTodosOpen] = useState(false) // 待办面板（Ctrl+T）
   const [todosList, setTodosList] = useState([])
-  const [goalText, setGoalText] = useState("") // 研究目标徽标（ZCode Goal 对标）
+  const [goalText, setGoalText] = useState("") // 研究目标徽标
   const [steerArmed, setSteerArmed] = useState(false) // Ctrl+S 回合补充指导待输入
   const [planMode, setPlanMode] = useState(false) // Plan 模式徽标
-  const [contextOpen, setContextOpen] = useState(false) // 上下文分解面板（dsh ContextMeter）
+  const [contextOpen, setContextOpen] = useState(false) // 上下文分解面板
   const [contextBreakdown, setContextBreakdown] = useState(null)
   const [reader, setReader] = useState(null) // 全屏阅读器 {title, lines, offset, query, searchMode}
   const [pluginCommands, setPluginCommands] = useState([]) // 插件命令（面板候选）
@@ -374,7 +374,7 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
   if (!controllerRef.current && controllerProp) controllerRef.current = controllerProp
 
   // slash 补全候选（草稿以 / 开头且未输入空格时打开）
-  const shellMode = draft.startsWith("!") // shell 模式（kimi-code `!` 对标）
+  const shellMode = draft.startsWith("!") // shell 模式
   const suggestOpen = !shellMode && draft.startsWith("/") && !draft.includes(" ") && draft.length >= 1
   const candidates = React.useMemo(
     () => (suggestOpen ? completionCandidates(draft, workspaceMode,
@@ -516,7 +516,7 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
     },
     toggleShortcuts: () => {
       setShortcutsOpen((v) => {
-        if (!v) setShortcutsScroll(0) // 每次打开回到顶部（对齐 ZCode 帮助面板）
+        if (!v) setShortcutsScroll(0) // 每次打开回到顶部
         setStatus(v ? "已关闭快捷键帮助" : "快捷键帮助（F1 关闭）")
         return !v
       })
@@ -568,7 +568,7 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
           return
         }
       }
-      // 世界模型 Enter：一键支持并刷新面板（Kosmos 事实流转对标）
+      // 世界模型 Enter：一键支持并刷新面板
       if (cur?.kind === "facts") {
         const row = (cur.data || [])[Math.min(cur.index, Math.max(0, (cur.data || []).length - 1))]
         if (row) {
@@ -614,7 +614,7 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
       if (c) insertMention(c.label)
     },
     moveSuggest: (dir) => setSuggestIndex((i) => Math.max(0, Math.min(i + dir, Math.max(0, candidates.length - 1)))),
-    // slash 补全确认（对齐 Ink）：禁用项只提示不提交；未写全先补全；已写全交回提交
+    // slash 补全确认：禁用项只提示不提交；未写全先补全；已写全交回提交
     confirmSuggest: () => {
       const c = candidates[Math.min(suggestIndex, candidates.length - 1)]
       if (!c) return { submit: false }
@@ -661,11 +661,7 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
     toggleContext: () => {
       const next = !contextOpen
       setContextOpen(next)
-      if (next) {
-        const ctrl = controllerRef.current
-        ctrl?.contextBreakdown?.().then((b) => b && setContextBreakdown(b)).catch(() => {})
-        setStatus("上下文分解（Esc 关闭）")
-      }
+      if (next) setStatus("上下文分解（Esc 关闭）")
     },
     toggleExpanded: () => {
       const next = !expandedRef.current
@@ -719,7 +715,7 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
         markAppearanceReady()
       }
     }).catch(() => { if (!cancelled) markAppearanceReady() })
-    // --continue：恢复最近 Agent 会话（Ink 版 resumeLatest 对标）
+    // --continue：恢复最近 Agent 会话
     if (autoResume) {
       ctrl.resumeLatest?.().then((r) => {
         if (!cancelled && r?.sessionId) {
@@ -954,8 +950,8 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
   const submit = async (directText) => {
     const text = typeof directText === "string" ? directText.trim() : draft.trim()
     if (!text) return
-    // 命令合约门（对齐 Ink handleReplSubmit）：远程/静态不可用命令只提示且保留草稿，不进入分发。
-    // 忙（busy）不走此门——本引擎忙时进队列（queue 路径），与 Ink 的拒绝语义有意不同。
+    // 命令合约门：远程/静态不可用命令只提示且保留草稿，不进入分发。
+    // 忙（busy）不走此门——本引擎忙时进队列（queue 路径）。
     if (typeof directText !== "string") {
       const gateParsed = parseCommand(text)
       if (gateParsed) {
@@ -973,7 +969,7 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
       setDraft("")
       applyCursor(0)
     }
-    // 敏感命令（令牌/密钥/配置 JSON）不进历史、回显脱敏（Ink safeCommandEcho 对标）；
+    // 敏感命令（令牌/密钥/配置 JSON）不进历史、回显脱敏；
     // 草稿与发送内容保持原文，仅展示层脱敏。
     const echo = safeCommandEcho(text)
     if (echo === text) setHistory((h) => (h[h.length - 1] === text ? h : [...h, text].slice(-100)))
@@ -1129,7 +1125,7 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
       return undefined
     }
     if (key.ctrl && key.name === "k") {
-      // Ctrl+K：删除光标到行尾（readline kill-to-end 对标）
+      // Ctrl+K：删除光标到行尾
       const c = cursorRef.current
       setDraft((d) => [...d].slice(0, Math.min(c, [...d].length)).join(""))
       return undefined
@@ -1215,7 +1211,7 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
           return { handled: true }
         },
       },
-      // ---- selection 层：人工确认关口菜单（数字直选，对齐 Ink 编号选择） ----
+      // ---- selection 层：人工确认关口菜单（数字直选） ----
       {
         layer: "selection",
         match: (k, ctx) => ctx.gateMenuOpen && (k.name === "up" || k.name === "down"),
@@ -1533,7 +1529,7 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
         layer: "global",
         match: (k) => k.name === "f12",
         run: () => {
-          // Debug overlay（ZCode 对标）：框架原生渲染统计浮层
+          // Debug overlay：框架原生渲染统计浮层
           if (renderer?.debugOverlay) {
             renderer.debugOverlay.enabled = !renderer.debugOverlay.enabled
             setStatus(renderer.debugOverlay.enabled ? "Debug overlay 已开启（F12 关闭）" : "Debug overlay 已关闭")
@@ -1552,7 +1548,7 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
           return { handled: true }
         },
       },
-      // ---- readonly 层：全屏阅读器（/read，Ink reader 移植）----
+      // ---- readonly 层：全屏阅读器（/read）----
       {
         layer: "readonly",
         match: (k, ctx) => ctx.readerOpen && k.name === "up",
@@ -1675,7 +1671,7 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
         layer: "global",
         match: (k) => k.ctrl && k.name === "l",
         run: () => {
-          // Ctrl+L 清屏（Claude Code 对标）：保留模式与草稿
+          // Ctrl+L 清屏：保留模式与草稿
           setLines([{ text: "格致 SciZhi（OpenTUI 引擎）· 已清屏，Ctrl+G 切换模式" }])
           setScrollOffset(0)
           setStatus("✓ 已清屏")
@@ -1704,7 +1700,7 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
         layer: "global",
         match: (k) => k.ctrl && k.name === "t",
         run: (k, ctx) => {
-          // Ctrl+T 研究待办面板（Claude Code toggleTodos 对标）
+          // Ctrl+T 研究待办面板
           void ctx.toggleTodos()
           return { handled: true }
         },
@@ -1713,7 +1709,7 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
         layer: "global",
         match: (k) => k.ctrl && k.name === "r",
         run: (k, ctx) => {
-          // Ctrl+R 历史搜索（Claude Code history:search 对标）
+          // Ctrl+R 历史搜索
           ctx.toggleHistorySearch()
           return { handled: true }
         },
@@ -1730,15 +1726,17 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
         layer: "global",
         match: (k) => k.ctrl && k.name === "c",
         run: (k) => {
-          // 三级语义（对齐 ZCode resolveCtrlCIntent）：选区复制 > 清草稿 > 2s 双击退出
-          const plan = resolveCtrlCIntent(k, { hasSelection: renderer?.hasSelection, draft: draftRef.current }, Date.now())
+          // 三级语义：选区复制 > 清草稿 > 2s 双击退出
+          const plan = resolveCtrlCIntent(k, { hasSelection: renderer?.hasSelection, draft: draftRef.current, lastCtrlCAt: lastCtrlCAt.current }, Date.now())
           if (plan.markCtrlCAt) lastCtrlCAt.current = plan.markCtrlCAt
           if (plan.action === "copy_selection") {
+            lastCtrlCAt.current = 0
             const text = renderer?.getSelection?.()?.getSelectedText?.() || ""
             if (text && renderer?.copyToClipboardOSC52?.(text)) setStatus("✓ 已复制选区文本")
             return { handled: true }
           }
           if (plan.action === "clear_draft") {
+            lastCtrlCAt.current = 0
             setDraft("")
             applyCursor(0)
             setStatus("已清空草稿")
@@ -1782,6 +1780,7 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
   }
 
   useKeyboard((key) => {
+    if (!(key.ctrl && key.name === "c")) lastCtrlCAt.current = 0
     // The drawer owns keyboard focus without ever changing the composer state.
     if (sidebarOverlayOpen) {
       if (key.name === "escape" || (key.ctrl && key.name === "b")) setSidebarOverlayOpen(false)
@@ -1849,7 +1848,7 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
       if (suggestOpen) return setSuggestIndex(0)
       const plan = resolveEscape({ selectionOpen: false, streaming })
       if (plan.action === "hint_exit" && draftRef.current) {
-        // 空闲 Esc 清草稿（对齐 Ink REPL：无可关层时先清输入，空草稿再按才是退出提示）
+        // 空闲 Esc 清草稿（无可关层时先清输入，空草稿再按才是退出提示）
         setDraft("")
         applyCursor(0)
         setStatus("草稿已清空")
@@ -1861,7 +1860,7 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
     editRef.current(key)
   })
 
-  // bracketed 粘贴（Ink pasteRef 的 OpenTUI 等价）：阅读器/审批打开时不吃粘贴；
+  // bracketed 粘贴：阅读器/审批打开时不吃粘贴；
   // 命令面板打开时归一化后进查询；默认插入草稿（超长保留原草稿并提示，不静默丢弃）。
   usePaste((event) => {
     const pasted = event?.bytes ? new TextDecoder().decode(event.bytes) : String(event?.text || "")
@@ -1916,6 +1915,31 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
     return () => clearInterval(id)
   }, [approval])
 
+  // Read local session metadata without overlapping requests or keeping a
+  // previous session's counts visible after switching sessions.
+  useEffect(() => {
+    const ctrl = controllerRef.current
+    if (!ctrl?.contextBreakdown || (!appearance.inspector_visible && !contextOpen)) {
+      setContextBreakdown(null)
+      return undefined
+    }
+    let cancelled = false, inFlight = false, previousSession = Symbol("initial")
+    const refresh = async () => {
+      const session = ctrl.sessionId
+      if (session !== previousSession) { previousSession = session; setContextBreakdown(null) }
+      if (inFlight) return
+      inFlight = true
+      try {
+        const value = await ctrl.contextBreakdown()
+        if (!cancelled && ctrl.sessionId === session) setContextBreakdown(value || null)
+      } catch { if (!cancelled && ctrl.sessionId === session) setContextBreakdown(null) }
+      finally { inFlight = false }
+    }
+    void refresh()
+    const timer = setInterval(refresh, 2000)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [streaming, appearance.inspector_visible, contextOpen])
+
   // Explicit preferences win over terminal events; only system mode subscribes.
   useEffect(() => {
     let cancelled = false
@@ -1954,7 +1978,7 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
   }, [reducedMotion])
   useEffect(() => () => timers.current.forEach(clearTimeout), [])
 
-  // 回看锚定（ZCode 行为）：视口停在历史时，新行到达按增量补偿偏移，视图不漂移；
+  // 回看锚定：视口停在历史时，新行到达按增量补偿偏移，视图不漂移；
   // offset=0（吸底）时不受影响，流式输出自动跟随。
   scrollOffsetRef.current = scrollOffset
   useEffect(() => {
@@ -2172,7 +2196,7 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
       })
     : null
 
-  // Subagent 只读下钻视图（整页替换会话区，ZCode subagent-view 对标）
+  // Subagent 只读下钻视图（整页替换会话区）
   const drillView = subagentDrill
     ? h(SubagentView, { swarm: subagentDrill, events: subagentDrill.events || [], onBack: () => setSubagentDrill(null) })
     : null
@@ -2187,7 +2211,7 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
       })
     : null
 
-  // 人工确认关口菜单（审批面板之后、其他面板之前；Ink 内联菜单的等价物）
+  // 人工确认关口菜单（审批面板之后、其他面板之前）
   const gateMenuPanel = gateMenu
     ? h(GateMenuPanel, {
         taskId: gateMenu.taskId,
@@ -2282,8 +2306,8 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
         { text: goalText ? `◎ 目标：${goalText.slice(0, 24)}` : "/goal 设置研究目标", weight: 2 },
         { text: "双击 Ctrl+C 退出", weight: 1 },
       ],
-      used: 8200,
-      total: 68000,
+      used: contextBreakdown?.input ?? null,
+      total: contextBreakdown?.limit ?? null,
       sidebar: { hidden: sidebarUserHidden, mode: appearance.sidebar_mode, overlayOpen: sidebarOverlayOpen, scroll: sidebarScroll, sections: sidebarSections },
     },
   })
@@ -2328,7 +2352,7 @@ export async function run({ stdin, stdout, autoResume = false } = {}) {
     renderer.on("raw_mouse", () => mice++)
     setTimeout(() => {
       const stats = renderer.stats || {}
-      // 阈值取 10：Git Bash 管道环境下 stdout sync 受限（真控制台无此问题，ZCode 已大规模验证）
+      // 阈值取 10：Git Bash 管道环境下 stdout sync 受限（真控制台无此问题）
       const result = {
         ok: frames >= 10,
         frames,

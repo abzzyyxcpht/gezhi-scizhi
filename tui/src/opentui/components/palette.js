@@ -1,4 +1,4 @@
-// 命令面板（Ctrl+P）—— 数据逻辑复用 Ink 版 paletteCommands（中文搜索 + relevance）
+// 命令面板（Ctrl+P）—— 数据逻辑使用 paletteCommands（中文搜索 + relevance）
 // 鼠标：行 hover 与键盘共享单一 index（last-input-wins），mousedown 即选中
 import React from "react"
 import stringWidth from "string-width"

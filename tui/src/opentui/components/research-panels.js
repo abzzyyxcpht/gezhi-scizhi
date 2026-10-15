@@ -1,4 +1,4 @@
-// 科研分析面板组（创新层，对标 Google co-scientist / Consensus / Elicit / Sakana AI Scientist-v2）
+// 科研分析面板组（创新层）
 // 假设排行榜（Elo 式竞争排序）· 共识计量条 · 证据矩阵 · 实验树
 // 数据全部来自既有 bridge 命令（notebook_list / evidence_brief），Python 端零改动；
 // 纯函数导出供无终端单测，组件遵循"组件不写字面量颜色"规范（docs/tui-design-spec.md）
@@ -21,7 +21,7 @@ function evidenceCounts(record) {
 }
 
 /**
- * 假设排行榜（co-scientist 锦标赛对标）：证据加权 + 状态加成 + 新近度
+ * 假设排行榜：证据加权 + 状态加成 + 新近度
  * 分数 = 支持×2 + 背景×0.5 − 反驳×1.5 + 状态加成 + 新近度(0–1)
  * @param records notebook_list(kind=hypothesis) 返回的 records 数组
  * @returns 按分数降序的 [{id,title,score,status,evidence,updated_at}]
@@ -49,7 +49,7 @@ export function rankHypotheses(records = []) {
 }
 
 /**
- * 共识计量（Consensus 对标）：支持→Yes / 背景→Mixed / 反驳→No
+ * 共识计量：支持→Yes / 背景→Mixed / 反驳→No
  * @param brief evidence_brief 响应（{records:[{counts:{supports,challenges,context}}]}）
  * @returns {{yes, mixed, no, total, ratio}} 计数与占比（total=0 时 ratio 为 null）
  */
@@ -69,7 +69,7 @@ export function consensusFromBrief(brief = null) {
 }
 
 /**
- * 实验树（AI Scientist-v2 tree search 对标）：related_ids 构成父子森林
+ * 实验树：related_ids 构成父子森林
  * @param records notebook_list 返回的 records 数组
  * @returns 森林 [{id,title,status,depth,children}]（环路防御：DFS 访问集）
  */
@@ -153,7 +153,7 @@ export function HypothesesPanel({ hypotheses = [], index = 0, width = 74 }) {
   )
 }
 
-/** 共识计量条（Consensus Meter 对标）：Yes/Mixed/No 三段比例条 */
+/** 共识计量条：Yes/Mixed/No 三段比例条 */
 export function ConsensusMeter({ consensus = null, width = 74 }) {
   if (!consensus || !consensus.total) {
     return h(
@@ -184,7 +184,7 @@ export function ConsensusMeter({ consensus = null, width = 74 }) {
   )
 }
 
-/** 证据矩阵面板（Elicit 对标）：记录 × 支持/反驳/背景/缺口/下一问 */
+/** 证据矩阵面板：记录 × 支持/反驳/背景/缺口/下一问 */
 export function EvidenceMatrixPanel({ matrix = [], width = 74 }) {
   if (!matrix.length) {
     return h(
@@ -219,7 +219,7 @@ export function EvidenceMatrixPanel({ matrix = [], width = 74 }) {
   )
 }
 
-/** 实验树面板（AI Scientist-v2 对标）：分支探索/晋升可视化 */
+/** 实验树面板：分支探索/晋升可视化 */
 export function ExperimentTreePanel({ tree = [], width = 74 }) {
   const rows = flattenTree(tree)
   if (!rows.length) {
@@ -245,7 +245,7 @@ export function ExperimentTreePanel({ tree = [], width = 74 }) {
   )
 }
 
-/** 世界模型事实卡片面板（Kosmos 结构化世界模型对标）：论断 + 置信度 + 状态 + 票数 */
+/** 世界模型事实卡片面板：论断 + 置信度 + 状态 + 票数 */
 const FACT_STATUS_COLOR = { verified: TOKENS.success, challenged: TOKENS.error, asserted: TOKENS.info, synthetic: TOKENS.textDim }
 const FACT_STATUS_LABEL = { verified: "已核验", challenged: "受反驳", asserted: "已录入", synthetic: "模拟" }
 const CONFIDENCE_LABEL = { high: "高", medium: "中", low: "低" }

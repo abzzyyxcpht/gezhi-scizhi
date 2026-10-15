@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""工具参数 Schema 校验测试（对标 Codex/Claude Code 的工具协议白名单制）。"""
+"""工具参数 Schema 校验测试：仅接受工具声明的参数。"""
 from __future__ import annotations
 
 import unittest

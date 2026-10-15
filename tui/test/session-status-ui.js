@@ -1,4 +1,4 @@
-// 远程会话状态与压缩（Ink session-status-ui 的 OpenTUI 移植）：只读 session-status、旧档案不虚构、
+// 远程会话状态与压缩：只读 session-status、旧档案不虚构、
 // 无操作/失败压缩可见、审批隔离、脱敏白名单字段。帧标记按 OpenTUI 口径对齐。
 // 注意：OpenTUI 审批面板打开时键盘独占（Enter 归面板），与 Ink 可边显示边输命令不同；
 // 因此先用数字键决策审批（call id 仍来自被选会话的快照），再执行状态/压缩断言。

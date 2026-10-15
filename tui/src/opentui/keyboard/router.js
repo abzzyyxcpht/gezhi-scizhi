@@ -1,4 +1,4 @@
-// 键盘路由分层 —— 纯函数，可无终端穷举单测（对齐 ZCode app-keyboard.ts 分层独占思想）
+// 键盘路由分层 —— 纯函数，可无终端穷举单测
 // 层级（自上而下，命中即 consume，下层不可见）：
 //   readonly 视图 → approval 审批 → selection 选择面板 → 全局快捷键 → 编辑器
 // 模态冲突被结构性消灭：每层返回 {handled, consumed}，consumed=true 时停止下传
@@ -33,7 +33,7 @@ export const esc = (key) => key.name === "escape" && !key.ctrl && !key.shift
 export const bare = (name) => (key) => !key.ctrl && !key.meta && !key.shift && key.name === name
 
 /**
- * Esc 分层关闭（对齐 ZCode）：
+ * Esc 分层关闭：
  *   有 selection 面板 → 关面板；有进行中输出 → 暂停；否则提示双击 Ctrl+C 退出
  * 返回语义动作字符串，由壳层执行。
  */
@@ -44,7 +44,7 @@ export function resolveEscape(ctx) {
 }
 
 /**
- * Ctrl+C 三级语义（对齐 ZCode resolveCtrlCExitIntent）：
+ * Ctrl+C 三级语义：
  *   有文本选区 → 复制；草稿非空 → 清空；否则 2 秒窗口内双击才退出
  */
 export function resolveCtrlCIntent(key, ctx, now = Date.now()) {

@@ -155,7 +155,7 @@ await runCommand("/hypotheses")
 frame = await stepUntil(setup, (f) => f.includes("仅在科研模式可用"))
 assert(frame !== null, "通用模式拒绝科研分析面板")
 
-// ---- autoResume（--continue 对标）：启动即恢复最近会话 ----
+// ---- autoResume：启动即恢复最近会话 ----
 const bridge2 = researchBridge()
 const controller2 = createSessionController({ bridge: bridge2, sleep: () => Promise.resolve() })
 const setup2 = await testRender(React.createElement(OpenTuiApp, { reducedMotion: false, controller: controller2, autoResume: true }), {

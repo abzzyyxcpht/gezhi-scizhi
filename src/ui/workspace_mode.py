@@ -47,7 +47,7 @@ class WorkspaceModeControl:
                               max_lines=2, overflow=ft.TextOverflow.ELLIPSIS)
         self.content = ft.Column([
             ft.Container(content=self.mode_row,
-                         padding=3, border_radius=8, bgcolor=p.SURFACE_3,
+                         padding=3, border_radius=radius('control'), bgcolor=p.SURFACE_3,
                          border=ft.Border.all(1, p.BORDER)),
             self.notice,
         ], spacing=5)

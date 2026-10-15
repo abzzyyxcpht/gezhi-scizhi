@@ -1,6 +1,6 @@
 // Footer 双行状态栏 —— 渲染层（数据逻辑在 layout/footer.js）
-// ZCode 层级语言（DESIGN.md + apps/zcode-cli app-input-status）：
-//   行 1 = 槽位徽标 + 右侧技巧轮转（键帽化 ⌘P）+ expand 提示（xs 层级、右对齐）；
+// 状态栏按内容和提示分层：
+//   行 1 = 槽位徽标 + 右侧技巧轮转（Ctrl+P 等快捷键）+ expand 提示（xs 层级、右对齐）；
 //   行 2 = 左侧预警（semantic）+ 右侧上下文占用 badge（紧凑数字 K/M）。
 import React, { useEffect, useState } from "react"
 import { TOKENS, MODE_TOKENS, modeColor } from "../theme/tokens.js"
@@ -11,7 +11,7 @@ import { createTipRotator, resolveSlots, formatContextUsage, resolveWarning, cli
 
 const h = React.createElement
 
-/** xs 层级（ZCode text-ui-xs：快捷键/徽标/极弱元数据） */
+/** xs 层级（快捷键/徽标/极弱元数据） */
 const TIP_STYLE = typeStyle("xs")
 const HINT_STYLE = typeStyle("xs")
 
@@ -37,15 +37,17 @@ export function FooterTop({ slotValues = {}, tips = [], tickMs = 0, expanded = f
   )
 }
 
-/** 行 2：左侧预警 + 右侧上下文占用（ZCode 紧凑数字口径） */
-export function FooterBottom({ used = 0, total = 68000, warningCtx = {} }) {
+/** 行 2：左侧预警 + 右侧上下文占用 */
+export function FooterBottom({ used = null, total = null, warningCtx = {} }) {
   const warning = resolveWarning(warningCtx)
+  const known = Number.isFinite(used) && used >= 0 && Number.isFinite(total) && total > 0
+  const context = known ? `ctx ${Math.round((used / total) * 100)}% · ${compactNumber(used)}/${compactNumber(total)} · 估算` : "ctx 暂无数据"
   return h(
     "box",
     { flexDirection: "row", paddingLeft: 1, paddingRight: 1, backgroundColor: TOKENS.panel },
     warning ? h("text", { content: `${SYMBOLS.banner} ${warning}`, fg: TOKENS.warning }) : h("text", { content: " " }),
     h("box", { flexGrow: 1 }),
-    h("text", { content: `ctx ${Math.round(total > 0 ? (used / total) * 100 : 0)}% · ${compactNumber(used)}/${compactNumber(total)}`, fg: TOKENS.textMuted })
+    h("text", { content: context, fg: TOKENS.textMuted })
   )
 }
 

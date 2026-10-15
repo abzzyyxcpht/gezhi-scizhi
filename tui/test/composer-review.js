@@ -1,4 +1,4 @@
-// Composer 独立回归（Ink composer-review 的 OpenTUI 移植）：bracketed 粘贴（整包/分片/ANSI）、
+// Composer 独立回归：bracketed 粘贴（整包/分片/ANSI）、
 // 前向删除、同块文本后 Esc 清草稿、80x24 长中英+emoji 混合、ZWJ 字形 caret 不变量。
 // 全部走隔离 fixture 与全桩 Bridge；提交后按 agent_launch 的 request 字段断言。
 import assert from 'node:assert/strict';

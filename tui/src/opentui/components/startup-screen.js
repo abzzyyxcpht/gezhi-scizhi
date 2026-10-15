@@ -1,4 +1,4 @@
-// 启动屏（ZCode TuiStartupScreen + Claude Code 欢迎屏对标）：
+// 启动屏：
 // 双模式格点图案逐行揭示 + shimmer 标题 + 脉冲连接态；reducedMotion 直切全量
 import React from "react"
 import { TOKENS, MODE_TOKENS, modeColor } from "../theme/tokens.js"

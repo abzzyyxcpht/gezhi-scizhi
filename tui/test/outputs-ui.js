@@ -1,4 +1,4 @@
-// 工具输出阅读（Ink outputs-ui 的 OpenTUI 移植）：字节偏移 list/search/read，读取不重放工具。
+// 工具输出阅读：字节偏移 list/search/read，读取不重放工具。
 // 夹具驱动真 runtime + 全桩 Bridge；提交纯文本即 agent 请求（OpenTUI 无 /agent 本地分支）。
 import assert from 'node:assert/strict';
 import path from 'node:path';

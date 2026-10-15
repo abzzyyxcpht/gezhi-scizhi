@@ -1,4 +1,4 @@
-"""通用工作台工具集：让 Agent 操作用户工作目录（对标 Codex/Claude Code 的 file/shell 工具）。
+"""通用工作台工具集：在用户工作目录中读写文件、搜索内容和执行命令。
 
 注册方式与 research_notebook_tools 一致：``register_tools(runtime)``。
 运行时负责权限审批（read=allow、write=ask）与审计日志；本模块只实现

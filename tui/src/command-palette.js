@@ -1,5 +1,5 @@
 // 命令面板纯逻辑（Ink/OpenTUI 双引擎共用；展示组件见 command-palette-view.js）
-// 设计对标 ZCode 的命令元数据分离：数据逻辑与渲染解耦。
+// 命令元数据分离：数据逻辑与渲染解耦。
 import { commandsForMode } from './workspace-mode.js';
 
 export const CONTROL_COMMANDS = [

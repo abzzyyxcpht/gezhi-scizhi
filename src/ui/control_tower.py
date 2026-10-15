@@ -8,7 +8,7 @@ from typing import Callable
 import flet as ft
 
 from .. import service
-from .theme import palette as p, style_inputs
+from .theme import palette as p, radius, style_inputs, motion_duration
 
 
 STATUS = {"draft": "草稿", "planned": "计划就绪", "running": "运行中", "pending": "排队中",
@@ -55,10 +55,10 @@ class ReasoningControl:
         self.buttons = {key: ft.TextButton(self.labels[key], width=56, height=30,
             tooltip=f"将默认模型新配置的思考强度设为{label}（{key}）",
             on_click=lambda e, k=key: self.choose(k)) for key, label in self.CHOICES.items()}
-        self.segments = {key: ft.Container(content=button, border_radius=6)
+        self.segments = {key: ft.Container(content=button, border_radius=radius('control'))
                          for key, button in self.buttons.items()}
         self.track = ft.Container(content=ft.Row(list(self.segments.values()), spacing=2, tight=True),
-            padding=3, border_radius=9, bgcolor=p.SURFACE_3, border=ft.Border.all(1, p.BORDER))
+            padding=3, border_radius=radius('control'), bgcolor=p.SURFACE_3, border=ft.Border.all(1, p.BORDER))
         self.advanced_items = {key: ft.PopupMenuItem(content=ft.Column([
             ft.Row([ft.Text(label, size=12, weight=ft.FontWeight.W_500, expand=True),
                     ft.Text(key, size=11, font_family="Consolas")], spacing=8),
@@ -71,7 +71,7 @@ class ReasoningControl:
             content=ft.Container(ft.Row([self.advanced_label,
                 ft.Icon(ft.Icons.EXPAND_MORE, size=16)], spacing=4, tight=True),
                 padding=ft.Padding(8, 0, 8, 0), height=32, alignment=ft.Alignment.CENTER),
-            padding=0, width=128, height=34, shape=ft.RoundedRectangleBorder(radius=6))
+            padding=0, width=128, height=34, shape=ft.RoundedRectangleBorder(radius=radius('control')))
         self.note = ft.Text(size=11, color=p.TEXT_3, max_lines=2,
                             overflow=ft.TextOverflow.ELLIPSIS)
         self.content = ft.Column([
@@ -92,17 +92,17 @@ class ReasoningControl:
             self.labels[key].weight = ft.FontWeight.W_600 if selected else ft.FontWeight.W_400
             self.segments[key].bgcolor = p.ACTIVE if selected else "transparent"
             button.style = ft.ButtonStyle(color=p.ACCENT_TEXT if selected else p.TEXT_2,
-                bgcolor="transparent", shape=ft.RoundedRectangleBorder(radius=6),
+                bgcolor="transparent", shape=ft.RoundedRectangleBorder(radius=radius('control')),
                 padding=ft.Padding(8, 0, 8, 0), overlay_color=p.HOVER,
-                animation_duration=180 if self.motion_enabled() else 0)
+                animation_duration=motion_duration('feedback') if self.motion_enabled() else 0)
         label, self.use_hint = self.EFFORTS.get(self.value, (f"未识别（{self.value}）", "请到模型设置检查此值"))
         self.advanced_label.value = "全部档位" if self.value in self.CHOICES else f"{label} · {self.value}" if self.value in self.EFFORTS else "未识别档位"
         self.advanced_label.color = p.TEXT_2 if self.value in self.CHOICES else p.ACCENT_TEXT
         self.advanced.bgcolor = p.INPUT
         self.advanced.style = ft.ButtonStyle(color=p.TEXT_2,
             overlay_color={ft.ControlState.HOVERED: p.HOVER, ft.ControlState.FOCUSED: p.ACTIVE},
-            side=ft.BorderSide(1, p.BORDER), shape=ft.RoundedRectangleBorder(radius=6),
-            animation_duration=180 if self.motion_enabled() else 0)
+            side=ft.BorderSide(1, p.BORDER), shape=ft.RoundedRectangleBorder(radius=radius('control')),
+            animation_duration=motion_duration('feedback') if self.motion_enabled() else 0)
         self.advanced.tooltip = f"完整思考档位；当前 {label}（{self.value}）。实际支持由模型与协议决定。"
         for key, item in self.advanced_items.items():
             item.checked = key == self.value
@@ -120,16 +120,18 @@ class ReasoningControl:
         known = self.value in self.EFFORTS
         automatic = self.value == "auto"
         off = self.value == "off"
-        transition = ft.Animation(180, ft.AnimationCurve.EASE_OUT_CUBIC) if enabled else None
+        panel_ms = motion_duration('panel') if enabled else 0
+        feedback_ms = motion_duration('feedback') if enabled else 0
+        transition = ft.Animation(panel_ms, ft.AnimationCurve.EASE_OUT_CUBIC) if panel_ms else None
         for segment in self.segments.values():
             segment.animate = transition
         for button in self.buttons.values():
             if button.style:
-                button.style.animation_duration = 180 if enabled else 0
+                button.style.animation_duration = feedback_ms
         if self.advanced.style:
-            self.advanced.style.animation_duration = 180 if enabled else 0
+            self.advanced.style.animation_duration = feedback_ms
         self.advanced.popup_animation_style = ft.AnimationStyle(
-            duration=180, reverse_duration=120, curve=ft.AnimationCurve.EASE_OUT_CUBIC
+            duration=panel_ms, reverse_duration=feedback_ms, curve=ft.AnimationCurve.EASE_OUT_CUBIC
         ) if enabled else ft.AnimationStyle.no_animation()
         self.off_mark.opacity = 1 if off else 0
         self.off_mark.color = p.TEXT_3
@@ -339,7 +341,7 @@ class ControlTower:
         result = []
         for row in rows:
             sid = row.get("session_id", "")
-            result.append(ft.Container(padding=12, border_radius=6, bgcolor=p.WARN_BG,
+            result.append(ft.Container(padding=12, border_radius=radius('panel'), bgcolor=p.WARN_BG,
                 content=ft.Column([self.text(f"等待审批 · {row.get('tool', '工具操作')}", bold=True, color=p.WARN),
                     self.text(f"会话 {sid} · 操作 {row.get('id', '')}"),
                     ft.OutlinedButton("查看审批", disabled=not bool(sid and self.open_session),
@@ -350,7 +352,7 @@ class ControlTower:
         snapshot = snapshot.get("tower", snapshot)
         summary, usage = snapshot.get("summary", {}), snapshot.get("usage", {})
         rows = [ft.Row([ft.Container(padding=12, width=max(120, (self.width - 36) / 4),
-            bgcolor=p.SURFACE_2, border_radius=6, content=ft.Column([
+            bgcolor=p.SURFACE_2, border_radius=radius('panel'), content=ft.Column([
                 ft.Text(str(summary.get(key, 0)), size=25, weight=ft.FontWeight.W_600, color=color,
                         max_lines=1),
                 ft.Text(label, size=11, color=p.TEXT_2)], spacing=4))
@@ -377,7 +379,7 @@ class ControlTower:
                         self.close()
                         self.open_task(i)
                     content.append(ft.TextButton("打开任务", on_click=open_task))
-                rows.append(ft.Container(padding=12, bgcolor=p.SURFACE_2, border_radius=6,
+                rows.append(ft.Container(padding=12, bgcolor=p.SURFACE_2, border_radius=radius('panel'),
                     content=ft.Column(content, spacing=6)))
         rows.extend(self.text(w, color=p.WARN) for w in snapshot.get("warnings", []))
         self.body.controls = rows

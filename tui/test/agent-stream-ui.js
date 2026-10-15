@@ -1,4 +1,4 @@
-// Agent 事件流（Ink agent-stream-ui 的 OpenTUI 移植）：local launch_pending 期刊等待、
+// Agent 事件流：local launch_pending 期刊等待、
 // remote 只读会话、legacy 引擎无事件流时的如实回退（最终回复 + 探测一次）。
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

@@ -6,7 +6,7 @@
 
 ## 参考边界
 
-对齐 ZCode 的公开设计规则与交互契约，不复制 ZCode 的业务代码或品牌资源。参考依据：
+对齐 ZCode 的公开设计规则与交互契约，不复制 ZCode 的业务代码或品牌资源。参考依据为 [zai-org/ZCode](https://github.com/zai-org/ZCode/tree/aac4755666d09fdcd70272fcf063c077a639015f) 3.15.1（Apache-2.0），固定提交 `aac4755666d09fdcd70272fcf063c077a639015f`。本地参考副本已移除，以下是原参考路径；现可通过根目录 DESIGN.md 中的链接复查：
 
 - `zcode/ZCode-main/ZCode-main/DESIGN.md`
 - `zcode/ZCode-main/ZCode-main/docs/ui/ui-font-tokens.md`

@@ -1,4 +1,4 @@
-// 上下文分解面板（dsh ContextMeter 对标）：消息 / 工具 schema / 输出预留 / 上限
+// 上下文分解面板：消息 / 工具 schema / 输出预留 / 上限
 import React from "react"
 import { TOKENS } from "../theme/tokens.js"
 import { SYMBOLS } from "../theme/symbols.js"
@@ -20,13 +20,15 @@ export function ContextPanel({ breakdown = null, width = 60 }) {
     )
   }
   const { messages, tools, input, reserve, limit } = breakdown
-  const pct = limit ? Math.round((input / limit) * 100) : 0
+  const known = Number.isFinite(input) && input >= 0 && Number.isFinite(limit) && limit > 0
+  const pct = known ? `${Math.round((input / limit) * 100)}%` : "未知"
+  const display = (value) => Number.isFinite(value) ? String(value) : "未记录"
   return h(
     "box",
     { flexDirection: "column", border: true, borderStyle: "single", borderColor: TOKENS.borderFocus, width: Math.min(width, 64) },
-    h("text", { content: ` 上下文占用 ${pct}%（${input}/${limit}）`, fg: TOKENS.accent }),
-    h("text", { content: ` ${bar(input, limit)}`, fg: TOKENS.accent }),
-    h("text", { content: `   消息 ${messages} · 工具 schema ${tools} · 输出预留 ${reserve}`, fg: TOKENS.textMuted }),
+    h("text", { content: ` 上下文占用 ${pct}（${display(input)}/${display(limit)} · 估算）`, fg: TOKENS.accent }),
+    h("text", { content: ` ${bar(known ? input : null, known ? limit : null)}`, fg: TOKENS.accent }),
+    h("text", { content: `   消息 ${display(messages)} · 工具 schema ${display(tools)} · 输出预留 ${display(reserve)}`, fg: TOKENS.textMuted }),
     h("text", { content: ` ${SYMBOLS.bullet} 输入 = 消息 + 工具 schema；预留保障响应空间`, fg: TOKENS.textDim })
   )
 }

@@ -1,4 +1,4 @@
-// 会话监控（Ink session-monitor-ui 的 OpenTUI 移植）：快照失败自动重试、远程已有会话
+// 会话监控：快照失败自动重试、远程已有会话
 // 监控、免参 /approve、回看 Esc 不取消工作、同会话继续后重启审批监控。
 // 注：Ink「第二次 Esc 取消 Agent」在 OpenTUI 语义为 Esc 暂停流式（agent_cancel 走 /cancel-agent），
 // 此处按 OpenTUI 语义断言「Esc 永不取消」；陈旧审批由串行提交 + 轮询刷新承接。

@@ -1,4 +1,4 @@
-// 工作台验收帧存档（Ink capture-workbench 的 OpenTUI 移植）：
+// 工作台验收帧存档：
 // 真渲染帧写入 design-previews/2026-09-17-harness-workbench/，宽度断言 80/100/140 无溢出。
 // 所有帧来自 upgrade-ui-fixture 驱动的真实 OpenTUI runtime，内存 fixture，无 Python/网络/终端。
 import assert from 'node:assert/strict';

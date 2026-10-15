@@ -1,4 +1,4 @@
-// 空会话区响应式（Ink welcome-ui 的 OpenTUI 移植）：六种尺寸不破版、双模式提示可发现、
+// 空会话区响应式：六种尺寸不破版、双模式提示可发现、
 // 不虚构文献篇数或进度。Ink 版测 Welcome 组件；OpenTUI 等价面是 AppShell 内的 EmptyTranscript
 // （已加 clipToWidth 窄屏裁剪），这里经 AppShell 直装验证终端级边界。
 // 窄尺寸下转写区随壳层 chrome 收缩，空状态按居中裁剪——身份与边界是渐进契约；

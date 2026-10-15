@@ -1,6 +1,6 @@
 # SciZhi 工作台设计系统
 
-采用本地 ZCode `DESIGN.md`、`packages/ui/src/styles.css` 与 Appearance 设计作为参考。实际跨端契约为 `assets/ui-design.json`，桌面实现映射到 Flet，终端映射到字符单元；不引入上游业务代码。
+实际跨端契约为 `assets/ui-design.json`，桌面实现映射到 Flet，终端映射到字符单元。设计参考与可复查来源见本文末尾。
 
 ## 视觉与层次
 长时间研究工作的中性工具界面。页面、侧栏、工作面、卡片、输入、菜单与弹窗使用各自语义颜色；主要操作克制，状态始终包含文字。
@@ -28,3 +28,11 @@ UI 14px，角色偏移 +4/+2/0/-1/-2/-4。中文无衬线回退；代码与终�
 
 ## 动效
 反馈 120ms、面板 180ms；键盘高频操作直接响应。关闭动效时静止，取消和审批不等待动画结束。
+
+## 参考资料
+
+设计与交互参考 [ZCode](https://github.com/zai-org/ZCode) 3.15.1（Apache-2.0），复查版本固定为 `aac4755666d09fdcd70272fcf063c077a639015f`。采用其公开设计规则作为验收依据，保留 SciZhi 的科研工作流与品牌。
+
+- [外观设置](https://github.com/zai-org/ZCode/blob/aac4755666d09fdcd70272fcf063c077a639015f/docs/ui/settings-appearance.md)
+- [字体角色](https://github.com/zai-org/ZCode/blob/aac4755666d09fdcd70272fcf063c077a639015f/docs/ui/ui-font-tokens.md)
+- [主题规范](https://github.com/zai-org/ZCode/blob/aac4755666d09fdcd70272fcf063c077a639015f/docs/ui/default-theme.md)

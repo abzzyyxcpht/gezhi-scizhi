@@ -9,6 +9,8 @@ from unittest.mock import Mock, patch
 import flet as ft
 from src import config, settings, project_workspace, session_workspace
 from src.ui import session_composer as ui
+from src.ui.code_preview import CodePreview
+from src.ui.settings_center import apply_appearance
 
 
 class SessionComposerTests(unittest.TestCase):
@@ -38,6 +40,32 @@ class SessionComposerTests(unittest.TestCase):
 
     def test_picker_is_registered_once_on_real_page_contract(self):
         self.assertEqual([self.ui.file_picker], self.ui.page.services)
+
+    def test_streamed_fenced_code_keeps_content_and_independent_display_preferences(self):
+        settings.save({'code_font_size': 18, 'code_show_line_numbers': False,
+                       'code_wrap_long_lines': False})
+        self.ui._render_events([
+            self.event('user_message', text='检查计算结果'),
+            self.event('assistant_delta', step=1, delta='```python\nresult = '),
+            self.event('assistant_delta', step=1, delta='42\n```'),
+        ])
+        bubble = self.ui.stream_bubbles[(1, 1)]
+        code = next((node for node in getattr(bubble, 'controls', []) if isinstance(node, CodePreview)), None)
+        self.assertIsNotNone(code)
+        self.assertEqual('result = 42\n', code.source)
+        self.assertEqual(18, code.code_lines[0].size)
+        self.assertFalse(code.rows[0].controls[0].visible)
+        self.assertTrue(code.code_lines[0].no_wrap)
+        final = '已核对。\n\n```python\nresult = 43\n```'
+        self.ui._render_events([self.event('assistant_message', step=1, content=final)])
+        self.assertIs(bubble, self.ui.stream_bubbles[(1, 1)])
+        self.assertEqual(final, bubble.value)
+        settings.save({'code_font_size': 16, 'code_show_line_numbers': True})
+        apply_appearance(self.ui.transcript)
+        code = next(node for node in bubble.controls if isinstance(node, CodePreview))
+        self.assertEqual('result = 43\n', code.source)
+        self.assertEqual(16, code.code_lines[0].size)
+        self.assertTrue(code.rows[0].controls[0].visible)
 
     def test_paged_refresh_uses_metadata_and_only_the_tail_page(self):
         self.ui.new()

@@ -24,7 +24,7 @@
   {"cmd":"ledger"}                             → 跨任务研究时间账
   {"cmd":"nodes"}                              → 工作流节点序列
   {"cmd":"doctor"}                             → 系统自检
-  {"cmd":"usage"}                              → 用量统计（模型/工具调用聚合，对标 /cost）
+  {"cmd":"usage"}                              → 用量统计（模型与工具调用聚合）
   {"cmd":"demo_seed" / "demo_clean"}           → 注入/清除一条离线演示任务（外观预览脚本专用）
 启动：python -m src.bridge
 """
@@ -360,7 +360,7 @@ def _handle(req: dict[str, Any]) -> dict[str, Any]:
                     else research_repo.log_text(int(req.get("limit", 10))))
             return _ok(text=text, available=research_repo.git_available())
         if cmd == "shell_exec":
-            # 终端 shell 模式（kimi-code `!` 对标）：项目根目录内执行，超时 10s，输出封顶 4000 字符
+            # 终端 shell 模式（`!` 前缀）：项目根目录内执行，超时 10s，输出封顶 4000 字符
             import subprocess
             command = str(req.get("command", "")).strip()
             if not command:

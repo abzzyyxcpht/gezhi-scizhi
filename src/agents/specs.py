@@ -1,4 +1,4 @@
-"""专项智能体编制表（对标 OpenCode named agents + DeepSeek Harness 子智能体）。
+"""专项智能体编制表：定义角色、工具范围与执行入口。
 
 每个智能体是可独立验收的执行单元：有名字、职责、工具白名单、权限默认值
 和角色提示词。主智能体 `research` 走原有 DAG+HITL 流水线；`pipeline`

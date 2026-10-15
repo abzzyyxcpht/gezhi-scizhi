@@ -1,4 +1,4 @@
-// 科研时间线面板（/timeline，科研模式创新模块）：ZCode workflow-timeline 词汇的终端化。
+// 科研时间线面板：验证阶段、计数和窄屏滚动。
 // 覆盖：纯函数不变量（行模型/空洞/几何/光标/滚动 + ui-parts 零件）、控制器聚合、
 // 80x28 集成分页与空洞展示、80x24 小终端不溢出。
 import assert from 'node:assert/strict';
@@ -13,7 +13,7 @@ import { createSessionController } from '../src/opentui/session-controller.js';
 import { Bridge } from '../src/bridge.js';
 import { upgradeFixture } from './upgrade-ui-fixture.js';
 
-// ---- 1) ui-parts 零件（ZCode 常量口径）----
+// ---- 1) ui-parts 零件----
 assert.equal(meterBar(0, 8), "········", "空计量条");
 assert.equal(meterBar(1, 8), "████████", "满计量条");
 assert.equal(meterBar(0.5, 8), "████····", "半格计量的 0.5 格语义");
@@ -27,7 +27,7 @@ assert.equal(countLine([{ n: 2, symbol: "✓" }, { n: 0, symbol: "✕" }]), "✓
 assert.equal(segmentBar([{ key: "done", n: 1 }], 3), "███", "满占比填满");
 assert.equal(segmentBar([{ key: "done", n: 1 }, { key: "failed", n: 1 }], 4), "██▓▓", "两类各半");
 assert.equal(segmentBar([], 3), "···", "无总量给空条");
-assert.equal(kbd(["ctrl", "p"], { bracket: true }), "[⌘ p]", "键帽：每键一颗 + 方括号");
+assert.equal(kbd(["ctrl", "p"], { bracket: true }), "[Ctrl p]", "键帽：每键一颗 + 方括号");
 assert.equal(compactNumber(8200), "8.2K", "紧凑数字 K（去 .0）");
 assert.equal(compactNumber(68000), "68K");
 assert.equal(compactNumber(500), "500", "<1k 原样");

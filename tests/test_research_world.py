@@ -1,4 +1,4 @@
-"""世界模型事实卡片测试（Kosmos 结构化世界模型对标）。
+"""世界模型事实卡片测试。
 
 覆盖：CRUD、来源校验（doi/url/凭据拒绝）、synthetic 状态一致性、
 版本冲突、投票状态迁移（supports≥2→verified、challenges 领先→challenged）、

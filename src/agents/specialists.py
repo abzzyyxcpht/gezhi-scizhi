@@ -1,6 +1,6 @@
 """专项智能体执行体：每个 run() 都是可离线完成的科研动作。
 
-对标 DeepSeek Harness 的 in-process subagent：子智能体共享父会话工作区，
+子智能体在进程内执行，共享父会话工作区，
 产物写回 workspace，供后续智能体与审计器消费。不经过 DAG 的 HITL 节点。
 """
 from __future__ import annotations

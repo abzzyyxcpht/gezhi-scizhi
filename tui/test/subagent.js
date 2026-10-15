@@ -43,7 +43,7 @@ assert.equal(readSessionEvents(dataDir, 'agent-fixture').length, 4);
 assert.deepEqual(readSessionEvents(dataDir, 'missing'), [], '缺失文件 → []');
 assert.deepEqual(readSessionEvents(dataDir, '../escape'), [], '非法 ID 拒绝读取');
 
-// ---- 端到端：OpenTUI 事件流里子代理行进会话转写区（renderEvents subagent_status 对标） ----
+// ---- 端到端：OpenTUI 事件流里子代理行进会话转写区 ----
 export const captureSubagentFrames = () => upgradeFixture(async t => {
   const originalCall = Bridge.prototype.call;
   let journalDone = false, finished = false;

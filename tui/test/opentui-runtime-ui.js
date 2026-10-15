@@ -117,7 +117,7 @@ await React.act(async () => {
 })
 frame = await stepUntil(setup, (f) => f.includes("已新建会话"))
 assert(frame !== null, "/new 清空并提示")
-// ---- 排队输入（ZCode QueuedInputPanel）----
+// ---- 排队输入----
 await React.act(async () => {
   await mockInput.typeText("第一条消息")
 })
@@ -188,7 +188,7 @@ await React.act(async () => {
 frame = await stepUntil(setup, (f) => !f.includes("回看"), { maxSteps: 30 })
 assert(frame !== null, "滚轮滚回底部（回看提示消失）")
 
-// ---- 审批面板（ZCode ApprovalPanel）----
+// ---- 审批面板----
 const bridgeA = fakeBridge({ mode: "research" })
 const origCallA = bridgeA.call.bind(bridgeA)
 bridgeA.call = async (req) => {
@@ -219,7 +219,7 @@ assert(bridgeA.calls.includes("agent_approve"), "审批写回引擎")
 setupA.renderer.destroy()
 
 await settle(setup)
-// ---- shell 模式（kimi-code `!` 对标）----
+// ---- shell 模式----
 const bridgeS = fakeBridge({ mode: "research" })
 const origS = bridgeS.call.bind(bridgeS)
 bridgeS.call = async (req) => {
@@ -240,7 +240,7 @@ assert(frame !== null, "shell 模式执行并渲染输出")
 assert(frame.includes("$ echo hello"), "shell 回显命令")
 setupS.renderer.destroy()
 
-// ---- Ctrl+S 回合补充指导（kimi-code 对标）----
+// ---- Ctrl+S 回合补充指导----
 const bridgeT = fakeBridge({ mode: "research" })
 const origT = bridgeT.call.bind(bridgeT)
 bridgeT.call = async (req) => {
@@ -273,7 +273,7 @@ assert(frame !== null, "指导追加到当前回合")
 assert(bridgeT.calls.includes("steer_add"), "steer_add 写回引擎")
 setupT.renderer.destroy()
 
-// ---- Subagent 下钻（ZCode subagent-view 对标）----
+// ---- Subagent 下钻----
 const bridgeU = fakeBridge({ mode: "research" })
 const origU = bridgeU.call.bind(bridgeU)
 bridgeU.call = async (req) => {

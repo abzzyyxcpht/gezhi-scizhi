@@ -1,0 +1,11 @@
+# 格致 SciZhi 便携版（TUI 链路）依赖清单
+# 面向 Node TUI：省略桌面 Flet 与旧 Textual 界面，保留数据分析依赖。
+PyYAML>=6.0
+httpx>=0.27
+pandas>=2.0
+openpyxl>=3.1
+numpy>=1.26
+matplotlib>=3.8
+scikit-learn>=1.4
+pypdf==6.14.2
+markdown-it-py>=2.2

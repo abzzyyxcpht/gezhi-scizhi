@@ -21,7 +21,7 @@ _LEXEMES = re.compile(r'''("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\#.*$|//.*$|\b\d+
 class CodePreview(ft.Container):
     def __init__(self, text: str, language: str = 'text', options: dict | None = None,
                  dark: bool | None = None):
-        super().__init__(padding=12, border_radius=8)
+        super().__init__(padding=12, border_radius=theme.radius('panel'))
         self.source, self.language = str(text), str(language)
         self._scizhi_code_preview = True
         self._preview_options, self._preview_dark = options, dark
@@ -49,6 +49,10 @@ class CodePreview(ft.Container):
         size = values['code_font_size']
         wrap = values['code_wrap_long_lines']
         family = theme.code_font_family(values.get('appearance_code_font'))
+        signature = (self.source, self.language, selected, bool(dark), size, wrap,
+                     family, values['code_show_line_numbers'])
+        if getattr(self, '_render_signature', None) == signature:
+            return
         self.rows, self.code_lines = [], []
         lines = self.source.splitlines() or ['']
         width = max(28, len(str(len(lines))) * size * .65 + 8)
@@ -86,3 +90,4 @@ class CodePreview(ft.Container):
                                    vertical_alignment=ft.CrossAxisAlignment.START))
         column = ft.Column(self.rows, spacing=2, tight=True)
         self.content = column if wrap else ft.Row([column], scroll=ft.ScrollMode.AUTO)
+        self._render_signature = signature

@@ -1,4 +1,4 @@
-// 工作台（Ink workbench-ui 的 OpenTUI 移植）：
+// 工作台：
 // 原生终端启动契约（src/terminal.js 活模块，断言原样保留）。
 // 注：Ink 的「工具与进程」宽窄检查器面板由 OpenTUI 侧栏三态 + Ctrl+B 取代，
 // 响应式断言由 opentui-shell-ui / opentui-runtime-ui 覆盖；/connect 输入掩码由

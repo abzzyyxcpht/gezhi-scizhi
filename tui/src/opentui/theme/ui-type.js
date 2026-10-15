@@ -1,9 +1,9 @@
-// UI 排版刻度（ZCode DESIGN.md「Typography / Spacing」的终端映射，单一权威）。
-// 来源：packages/ui DESIGN.md（--ui-font-size=14px 与 text-ui-* 刻度、4px 间距基数、类型角色表）。
+// UI 排版刻度。
+// 字号与偏好读取共享 assets/ui-design.json，终端组件使用统一角色表。
 // 终端没有 px 字号，故把刻度映射为「层级角色」：颜色层（text/textMuted/textDim）+ 权重（bold/常规）。
 // 用法：typeStyle("sm") → { tier, strong }；组件禁止自造字号/层级。
 
-/** ZCode 字号刻度（px 值，用于文档与测试对齐；终端只消费 tier 语义） */
+/** 字号刻度（px 值，用于文档与测试对齐；终端只消费 tier 语义） */
 import { UI_DESIGN } from "./preferences.js"
 
 const TYPE_DESCRIPTIONS = {
@@ -18,7 +18,7 @@ const TYPE_DESCRIPTIONS = {
 export const TYPE_SCALE = Object.fromEntries(Object.entries(TYPE_DESCRIPTIONS).map(([key, info]) =>
   [key, { ...info, px: UI_DESIGN.typography.base + UI_DESIGN.typography.offsets[key] }]))
 
-/** ZCode 默认界面字号（Appearance 设置只改这一个变量） */
+/** 默认桌面界面字号；终端只采用对应的文字层级。 */
 export const UI_FONT_SIZE = UI_DESIGN.settings.ui_font_size.default
 
 /** 层级角色 → 终端实现（tier 取 theme tokens 的文本三级；strong=加粗） */
@@ -31,19 +31,19 @@ const ROLES = {
   xs: { tier: "textDim", strong: false },
 }
 
-/** 取角色对应的终端样式（ZCode：字号与颜色层级是独立决策，这里保持独立参数） */
+/** 取角色对应的终端样式（字号与颜色层级是独立决策，这里保持独立参数） */
 export function typeStyle(role = "base", { strong = null } = {}) {
   const r = ROLES[role.replace(/^ui_/, "")] || ROLES.base
   return { role, tier: r.tier, strong: strong === null ? r.strong : Boolean(strong) }
 }
 
-/** ZCode 间距基数 4px → 终端列/行（tight=4px=1 格，compact=8px=2 格，dense=12px=3 格，panel=16px=4 格） */
+/** 间距基数 4px → 终端列/行（tight=4px=1 格，compact=8px=2 格，dense=12px=3 格，panel=16px=4 格） */
 export const SPACING = { tight: 1, compact: 2, dense: 3, panel: 4, section: 5 }
 
-/** ZCode 控件高度阶梯（h-5..h-8 = 20/24/28/32px）→ 终端行内边距释义 */
+/** 控件高度阶梯（h-5..h-8 = 20/24/28/32px）→ 终端行内边距释义 */
 export const CONTROL_HEIGHTS = { xs: 0, sm: 0, default: 1, lg: 2 }
 
-/** ZCode Button size 契约（packages/ui/src/components/ui/button.tsx） */
+/** 按钮尺寸与内边距契约 */
 export const BUTTON_SIZES = {
   xs: { h: 20, rounded: "sm", px: 2, gap: 1, icon: 2.5 },
   sm: { h: 24, rounded: "md", px: 2, icon: 3 },

@@ -1,4 +1,4 @@
-// HITL 菜单（Ink menu 的 OpenTUI 移植）：
+// HITL 菜单：
 // 纯函数层（src/commands.js 活模块）——matchMenu 数字命中/越界/空格容忍原样保留。
 // 注：Ink 的「待人工确认内联菜单」渲染在 OpenTUI 由审批面板（数字键决策）承接，
 // 端到端关口→菜单→数字选择由 opentui-runtime-ui 审批面板测试覆盖；

@@ -1,15 +1,12 @@
 // 语义颜色 token —— 唯一颜色权威（组件禁止写字面量颜色，必须从这里取）。
-// 语义角色参考 ZCode 终端主题：
-// apps/zcode-cli/packages/tui/src/theme/defaults.ts（DARK_TUI_THEME / LIGHT_TUI_THEME），
-// 与 packages/ui 的
-// DESIGN.md 令牌语义一一对应（primary/accent、text/textMuted、border/borderActive/borderSubtle、
-// diff*/markdown*/syntax*、thinkingOpacity）。
-// 模式色（通用/科研）取 ZCode 的 primary(sky-300) 与 secondary(violet-300)；
+// 终端主题按正文、表面、边框、状态和代码语法分组。
+// 组件按语义选用文字、表面、边框、差异、Markdown 和代码语法颜色。
+// 通用与科研模式分别使用浅蓝和浅紫；
 // 辅助文本适当提高对比度，保证两种主题下实际文字均可读。
 export const TOKENS = {
   // 文本三级（+ 选中态文本）
   text: "#e5e7eb",
-  textStrong: "#f8fafc", // ZCode selectedListItemText：选中/最强前景
+  textStrong: "#f8fafc", // 选中/最强前景
   textMuted: "#94a3b8",
   textDim: "#7d8998",
   // 背景五级
@@ -20,10 +17,10 @@ export const TOKENS = {
   userMessage: "#30363d",
   // 边框三级
   border: "#3b4450",
-  borderFocus: "#7dd3fc", // ZCode borderActive
+  borderFocus: "#7dd3fc", // 焦点边框
   borderWarning: "#fbbf24",
   borderSubtle: "#26313d",
-  // 语义色（ZCode primary/secondary/accent/info/error/warning/success）
+  // 语义色
   accent: "#7dd3fc",
   primary: "#7dd3fc",
   secondary: "#c4b5fd",
@@ -31,7 +28,7 @@ export const TOKENS = {
   warning: "#fbbf24",
   error: "#fca5a5",
   info: "#93c5fd",
-  // 双模式品牌色（ZCode primary=sky-300 / secondary=violet-300）
+  // 双模式品牌色
   modeGeneral: "#7dd3fc", // 通用 · 开放格点蓝
   modeResearch: "#c4b5fd", // 科研 · 聚焦格点紫
   // shell 模式（! 前缀）
@@ -74,7 +71,7 @@ export const TOKENS = {
 
 export const LIGHT_TOKENS = {
   text: "#111827",
-  textStrong: "#0f172a", // ZCode selectedListItemText
+  textStrong: "#0f172a", // 选中项前景
   textMuted: "#64748b",
   textDim: "#64748b",
   background: "#f8fafc",
@@ -83,7 +80,7 @@ export const LIGHT_TOKENS = {
   menu: "#ffffff",
   userMessage: "#e0f2fe",
   border: "#cbd5e1",
-  borderFocus: "#0284c1", // ZCode borderActive
+  borderFocus: "#0284c1", // 焦点边框
   borderWarning: "#a16207",
   borderSubtle: "#e5e7eb",
   accent: "#0369a1",
@@ -134,7 +131,7 @@ export const MODE_TOKENS = {
   research: { key: "modeResearch", label: "科研", symbol: "◎" },
 }
 
-/** 字体栈（ZCode font-mono/font-sans 原文，含 CJK 兜底防宋体回落；终端只作说明用） */
+/** 字体栈含中文回退；终端字号与实际字形由宿主配置。 */
 export const FONT_STACKS = {
   mono: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", monospace',
   sans: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif',

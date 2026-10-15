@@ -1,4 +1,4 @@
-// 思考强度应用帧存档（Ink reasoning-app-ui 的 OpenTUI 移植）：
+// 思考强度应用帧存档：
 // 保存待确认期间输入不锁、保存确认、失败保留旧值、80x24 有界。
 import assert from 'node:assert/strict';
 import path from 'node:path';

@@ -1,4 +1,4 @@
-// 快捷键帮助面板（F1 / Ctrl+/ 打开；对标顶级 harness 的快捷键面板）
+// 快捷键帮助面板
 // 小终端窗口化：按终端高度裁窗（shortcutsGeometry 单一推导，预算与渲染同源），↑↓ 滚动。
 import React from "react"
 import { TOKENS } from "../theme/tokens.js"

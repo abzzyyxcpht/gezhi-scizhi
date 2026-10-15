@@ -31,7 +31,7 @@ try {
   check("consensusFromBrief 对空 brief 健壮", consensusFromBrief({}).total === 0)
   check("buildExperimentTree 对空数组健壮", buildExperimentTree([]).length === 0)
 
-  // 4b) 世界模型 round-trip（Kosmos 对标）：save → list → vote → delete
+  // 4b) 世界模型 round-trip：save → list → vote → delete
   const wfSave = await bridge.call({ cmd: 'world_fact_save', fact: {
     claim: '冒烟事实：退火温度与缺陷检出率正相关', topic: '热轧钢',
     source: { id: 'e2e_src', source_type: 'user_provided' } } });
@@ -59,7 +59,7 @@ try {
     await bridge.call({ cmd: "notebook_delete", id: "e2e_h1" })
   }
 
-  // 6) AI 审稿人（Sakana 对标）：造一条记录 → 五维评分
+  // 6) AI 审稿人：造一条记录 → 五维评分
   const nbSave = await bridge.call({ cmd: 'notebook_save', record: {
     id: 'e2e_review', kind: 'hypothesis', title: '审稿冒烟：温度与产率', status: 'completed',
     question: '温度是否提升产率？', result: '提升 4.2%',

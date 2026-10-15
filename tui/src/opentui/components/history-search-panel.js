@@ -1,4 +1,4 @@
-// 历史搜索面板（Ctrl+R，Claude Code history:search 对标）：过滤 100 条历史，Enter 填入草稿
+// 历史搜索面板（Ctrl+R）：过滤 100 条历史，Enter 填入草稿
 import React from "react"
 import { TOKENS } from "../theme/tokens.js"
 import { SYMBOLS } from "../theme/symbols.js"

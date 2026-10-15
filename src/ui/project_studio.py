@@ -9,8 +9,9 @@ from typing import Any, Callable
 import flet as ft
 
 from ..bridge import handle
-from .theme import palette, style_inputs
+from .theme import palette, radius, style_inputs
 from .code_preview import CodePreview
+from .markdown_view import MarkdownView
 
 
 SECTIONS = {"files": "项目文件", "git": "Git版本", "planning": "任务计划", "handoff": "研究交接"}
@@ -384,7 +385,7 @@ class ProjectStudio:
                                                   width=max(220, self.width - 28), height=380,
                                                   error_content=self.text("无法显示此图片。"))]
             elif kind in {"markdown", "md"}:
-                self.preview.controls = [ft.Markdown(content, selectable=True,
+                self.preview.controls = [MarkdownView(content, selectable=True,
                                                      extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                                                      auto_follow_links=False)]
             elif kind in {"binary", "unsupported"}:
@@ -765,7 +766,7 @@ class ProjectStudio:
             details.append(self.button("打开运行会话", lambda: self.on_session_open(session)))
         if schedule.get("last_error"):
             details.append(self.text(schedule["last_error"]))
-        return ft.Container(ft.Column(details, spacing=6), padding=10, bgcolor=palette.SURFACE_2, border_radius=6)
+        return ft.Container(ft.Column(details, spacing=6), padding=10, bgcolor=palette.SURFACE_2, border_radius=radius('panel'))
 
     def toggle_schedule(self, identifier, enabled):
         try:

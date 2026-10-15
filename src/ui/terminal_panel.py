@@ -11,7 +11,7 @@ from typing import Any, Callable
 
 import flet as ft
 
-from .theme import palette, style_inputs, style_typography, mark_typography
+from .theme import palette, radius, style_inputs, style_typography, mark_typography
 from ..workbench import redact
 
 OUTPUT_LINE_LIMIT = 200
@@ -43,10 +43,10 @@ class TerminalPanel:
                               overflow=ft.TextOverflow.ELLIPSIS)
         self.input = ft.TextField(
             hint_text="输入命令，回车执行 · cwd = 当前项目根",
-            dense=True, border_radius=6, on_submit=self.execute, expand=True,
+            dense=True, border_radius=radius('control'), on_submit=self.execute, expand=True,
             bgcolor=palette.SURFACE, border_color=palette.BORDER)
         self.body = ft.Container(
-            visible=False, height=230, bgcolor=palette.SURFACE_2, border_radius=8,
+            visible=False, height=230, bgcolor=palette.SURFACE_2, border_radius=radius('panel'),
             border=ft.Border.all(1, palette.BORDER), padding=10,
             content=ft.Column([
                 ft.Row([

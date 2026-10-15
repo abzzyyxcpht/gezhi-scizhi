@@ -1,4 +1,4 @@
-// 研究命令面（Ink research-ui 的 OpenTUI 移植）：密钥配置输入掩码 + 历史不落敏感命令、
+// 研究命令面：密钥配置输入掩码 + 历史不落敏感命令、
 // agent 会话选择/继续/取消、/usage 未知缓存保留、/session 打开后跨会话继续。
 import assert from 'node:assert/strict';
 import path from 'node:path';

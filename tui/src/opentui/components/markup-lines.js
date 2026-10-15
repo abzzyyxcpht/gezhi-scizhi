@@ -4,10 +4,12 @@ import stringWidth from 'string-width'
 import { clipToWidth } from '../layout/width-budget.js'
 import { normalizeAppearance } from '../theme/preferences.js'
 
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+
 function wrapCells(text, width) {
   const rows = []
   let row = '', used = 0
-  for (const ch of text) {
+  for (const { segment: ch } of graphemes.segment(text)) {
     const size = stringWidth(ch)
     if (row && used + size > width) { rows.push(row); row = ''; used = 0 }
     row += ch
@@ -26,18 +28,22 @@ export function prepareTranscriptRows(lines = [], width = 80, preferences = {}) 
     const prose = !line.user && !line.dim && !line.kind
     if (!prose) fence = null
     for (const raw of String(line.text ?? '').split('\n')) {
+      const expanded = raw.replaceAll('\t', '    ')
       const match = prose && raw.match(/^\s*(`{3,}|~{3,})(.*)$/)
       if (match && (!fence || (match[1][0] === fence[0] && match[1].length >= fence.length))) {
         fence = fence ? null : match[1]
         codeLine = 0
-        rows.push({ ...line, text: clipToWidth(raw, width), fence: true, code: false, gutter: '' })
+        rows.push({ ...line, text: clipToWidth(expanded, width), fence: true, code: false, gutter: '' })
         continue
       }
       const code = Boolean(fence && prose)
       if (code) codeLine++
       const gutter = code && prefs.code_show_line_numbers ? `${String(codeLine).padStart(3)} ` : ''
-      const available = Math.max(4, width - stringWidth(gutter))
-      const visualRows = code && prefs.code_wrap_long_lines ? wrapCells(raw.replaceAll('\t', '    '), available) : [clipToWidth(raw, available)]
+      const available = Math.max(4, width - stringWidth(gutter) - (line.user ? 2 : 0))
+      // Prose always wraps so scrolling reveals the full response. The code
+      // preference only changes source blocks, which may explicitly truncate.
+      const visualRows = !code ? wrapCells(expanded, available)
+        : prefs.code_wrap_long_lines ? wrapCells(expanded, available) : [clipToWidth(expanded, available)]
       visualRows.forEach((text, i) => rows.push({ ...line, text, code, gutter: i === 0 ? gutter : ' '.repeat(gutter.length) }))
     }
   }

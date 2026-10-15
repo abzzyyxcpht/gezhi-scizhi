@@ -1,4 +1,4 @@
-// 宽度预算 —— 全应用唯一宽度推导入口（吸取 ZCode 宽度常量散落 10+ 文件的教训）
+// 宽度预算 —— 全应用唯一宽度推导入口
 // 纯函数，可无终端单测
 import stringWidth from 'string-width'
 
@@ -14,7 +14,7 @@ export function contentWidthForTerminal(terminalWidth, { sidebarVisible = false,
   return Math.max(MIN_CONTENT_WIDTH, tw - sidebar - padding - chrome)
 }
 
-/** 侧栏三态布局（对齐 ZCode sidebarLayoutForTerminal） */
+/** 侧栏三态布局 */
 export function sidebarLayoutForTerminal(terminalWidth, { userHidden = false, mode = "docked" } = {}) {
   if (userHidden || mode === "hidden") return "hidden"
   if (mode === "overlay") return "overlay"
@@ -22,7 +22,7 @@ export function sidebarLayoutForTerminal(terminalWidth, { userHidden = false, mo
   return "overlay"
 }
 
-/** 工具卡 header 截断策略（对齐 kimi-code keep:'head'）：窄终端先裁参数、保住尾部 chip */
+/** 工具卡 header 截断策略：窄终端先裁参数、保住尾部 chip */
 export function truncateHeader({ label, detail, chip }, width) {
   const ellipsis = "…"
   const fixed = label.length + (chip ? chip.length + 1 : 0) + 2

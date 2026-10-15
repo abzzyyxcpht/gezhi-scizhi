@@ -1,4 +1,4 @@
-// Composer 编辑器（Ink composer-ui 的 OpenTUI 移植）：历史召回恢复草稿、
+// Composer 编辑器：历史召回恢复草稿、
 // 超长粘贴保留原草稿并提示、CJK/emoji 长草稿 80x24 有界、提交才执行。
 // 注：bracketed 粘贴/前向删除/Esc 清空已由 composer-review（OpenTUI 版）覆盖；
 // Alt+Enter/Kitty/Ctrl+J 换行属 Ink raw-input 适配器行为，OpenTUI 由框架输入层承接。

@@ -9,7 +9,7 @@ import { typeStyle } from "../theme/ui-type.js"
 
 const h = React.createElement
 
-// 宽度键控行缓存：长会话重复裁剪不重算（对齐 dsh「按宽度缓存」教训）
+// 宽度键控行缓存：长会话重复裁剪不重算
 const clipCache = new Map()
 const CLIP_CACHE_MAX = 4096
 export function clipCached(text, width) {
@@ -52,7 +52,7 @@ export function TranscriptView({ lines = [], height = 20, offset = 0, width = 80
   const rows = windowLines(prepared, height, offset)
   const base = typeStyle("ui_base")
   const scrolled = offset > 0
-  const isEmpty = rows.length <= 1 && !scrolled
+  const isEmpty = lines.length <= 1 && !scrolled
   return h(
     "box",
     {

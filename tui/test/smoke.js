@@ -1,4 +1,4 @@
-// 冒烟（Ink smoke 的 OpenTUI 移植）：握手首屏 / 命令表 / Tab 补全 / Enter 补全 / Esc 清空 /
+// 冒烟：握手首屏 / 命令表 / Tab 补全 / Enter 补全 / Esc 清空 /
 // Ctrl+C 提示 / 行内编辑 / Ctrl+L 清屏 / /read 用法 / 忙碌指示 / 历史召回 / /menu 面板等价。
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -88,6 +88,6 @@ export const captureSmokeFrames = () => upgradeFixture(async t => {
 
 if (path.resolve(process.argv[1] || '') === fileURLToPath(import.meta.url)) {
   const result = await captureSmokeFrames();
-  console.log(`TUI 冒烟通过（OpenTUI 移植）：${result.frames.length} 帧`);
+  console.log(`TUI 冒烟通过：${result.frames.length} 帧`);
   process.exit(0);
 }

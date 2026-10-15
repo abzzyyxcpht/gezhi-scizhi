@@ -1,4 +1,4 @@
-"""GEZHI.md 研究上下文文件（对标 Codex 的 AGENTS.md / Claude Code 的 CLAUDE.md）。
+"""GEZHI.md 研究上下文文件：保存项目规则与研究约束。
 
 放置在项目根目录或工作目录的 GEZHI.md 会被每次流水线运行读取，
 正文注入系统提示词——研究方向、术语表、格式偏好由用户显式声明，

@@ -1,4 +1,4 @@
-// 首次运行检查与离线样例（Ink onboarding-ui 的 OpenTUI 移植）：远程只读检查、不自动写设置、
+// 首次运行检查与离线样例：远程只读检查、不自动写设置、
 // 显式 /demo 才启动合成样例，且样例任务被当前工作台跟踪（透传 task_id，不新开会话）。
 import assert from 'node:assert/strict';
 import path from 'node:path';

@@ -1,4 +1,4 @@
-// 全屏阅读器（Ink reader 的 OpenTUI 移植）：窗口完整性不变量——
+// 全屏阅读器：窗口完整性不变量——
 // gutter 行号序列连续不断档、首屏从第 1 行起、翻页/逐行/到底不越界、标题总行数一致。
 // 注：OpenTUI ReaderPanel 表头为「「标题」 · N 行」+ 进度条（非 Ink 的「行 a–b / total」），
 // 不变量按 OpenTUI 口径改写：可见行号必须是连续区间，长度等于面板可视行数。
@@ -71,6 +71,6 @@ export const captureReaderFrames = () => upgradeFixture(async t => {
 
 if (path.resolve(process.argv[1] || '') === fileURLToPath(import.meta.url)) {
   const result = await captureReaderFrames();
-  console.log(`TUI 阅读器测试通过（OpenTUI 移植，窗口完整性）：${result.frames.length} 帧`);
+  console.log(`TUI 阅读器测试通过（窗口完整性）：${result.frames.length} 帧`);
   process.exit(0);
 }

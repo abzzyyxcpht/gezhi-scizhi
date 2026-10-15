@@ -24,6 +24,7 @@ from pathlib import Path
 import sys
 import subprocess
 import tempfile
+import traceback
 from types import SimpleNamespace
 import uuid
 
@@ -38,6 +39,7 @@ SCREENS = {"home": "新任务", "agent": "智能体", "monitor": "研究进度",
            "project-files": "项目", "project-planning": "项目", "project-git": "项目", "project-handoff": "项目",
            "chat-compose": "智能体", "chat-side": "智能体",
            "chat-history": "智能体", "chat-search": "智能体", "chat-input": "智能体", "chat-rewind": "智能体",
+           "chat-code": "智能体",
            "session-status": "智能体", "session-compacted": "智能体",
            "context-inspector": "智能体", "context-inspector-collapsed": "智能体",
            "draft-restored": "智能体", "draft-conflict": "智能体",
@@ -470,7 +472,7 @@ async def prepare_workspace_mode_state(page, screen: str, data_dir: Path, ui: di
     return details
 
 
-async def prepare_state(page, screen: str, data_dir: Path, *, ui: dict | None = None) -> dict:
+async def prepare_state(page, screen: str, data_dir: Path, *, ui: dict | None = None, diagnostic=None) -> dict:
     if SCREENS.get(screen) == '智能体':
         await expand_section(page, '会话状态与上下文', screen in {
             'session-status', 'session-compacted', 'context-inspector',
@@ -606,8 +608,14 @@ async def prepare_state(page, screen: str, data_dir: Path, *, ui: dict | None = 
                 'real_bridge_receipt': True, 'mocked_initial_model_calls': 1, 'real_model_calls': 0,
                 'executed_tools': 0, 'draft_cleared_after_matching_receipt': True, 'requires_explicit_continue': True}
     if screen == 'agent':
+        if diagnostic:
+            diagnostic('agent-before-new')
         await click_text(page, '新建会话')
+        if diagnostic:
+            diagnostic('agent-after-new')
         await expand_section(page, '执行选项', False)
+        if diagnostic:
+            diagnostic('agent-after-options')
         await expand_section(page, '研究与会话工具', False)
         await expand_section(page, '开始使用', False)
         stop = next(c for c in walk_controls(page) if getattr(c, 'content', None) == '停止会话')
@@ -839,6 +847,25 @@ async def prepare_state(page, screen: str, data_dir: Path, *, ui: dict | None = 
             await click_text(page, 'analysis.py' if screen == 'project-code' else '研究方案.md')
         await asyncio.sleep(.7)
         return {'project_fixture': True, 'view': view, 'no_model_request':True}
+    if screen == 'chat-code':
+        from src.agent_runtime import SessionStore
+        await click_text(page, '新建会话')
+        store = SessionStore(data_dir / 'sessions')
+        sid = store.list()[0]['session_id']
+        store.append(sid, 'user_message', {'text': '给出文献覆盖率的计算示例。', 'mode': 'agent'})
+        store.append(sid, 'assistant_message', {'step': 1, 'content':
+            '## 核对方法\n\n先固定预期文献集合，再计算实际覆盖比例。以下仅为界面验收示例。\n\n'
+            '```python\ndef coverage(found, expected):\n'
+            '    matched = set(found) & set(expected)\n'
+            '    return len(matched) / max(1, len(expected))\n```\n\n'
+            '同时记录**漏检文献**，不要只看一个汇总数字。'})
+        store.append(sid, 'completed', {'status': 'done'})
+        await click_text(page, '对话记录')
+        await wait_for(lambda: any('核对方法' in str(getattr(c, 'value', ''))
+                                  for d in open_dialogs(page) for c in walk_controls(d)),
+                       'conversation with fenced code')
+        return {'session_id': sid, 'messages': 2, 'fixture': True,
+                'markdown_code_preview': True, 'no_model_request': True}
     if screen in {'chat-history', 'chat-search', 'chat-input', 'chat-rewind'}:
         from src.agent_runtime import SessionStore
         await click_text(page, '新建会话')
@@ -1057,6 +1084,7 @@ def main() -> int:
                         help='Reading scale for this isolated screenshot fixture')
     parser.add_argument('--ui-font-size', type=int, choices=range(12, 21), default=None,
                         help='Canonical interface size; code and terminal remain independent')
+    parser.add_argument('--diagnostics', action='store_true', help='Record isolated native view state around fixture callbacks')
     args = parser.parse_args()
     if sys.platform != "win32":
         parser.error("This native HWND capture helper supports Windows only")
@@ -1133,23 +1161,27 @@ def main() -> int:
 
     def wrapped(page: ft.Page) -> None:
         ui = {}
-        if any(screen in {'draft-restored', 'draft-conflict', 'tool-output-read', 'tool-output-search', 'model-control', 'activity-tree', 'command-search', 'general-workspace', 'research-mode', 'mode-commands'} for screen in screens):
+        diagnostic_ui = {}
+        needs_controls = any(screen in {'draft-restored', 'draft-conflict', 'tool-output-read', 'tool-output-search', 'model-control', 'activity-tree', 'command-search', 'general-workspace', 'research-mode', 'mode-commands'} for screen in screens)
+        if needs_controls or args.diagnostics:
             previous_profile = sys.getprofile()
             wanted = ('drafts', 'agent_request', 'agent_state', 'select_agent_session', 'get_runtime', 'finish_native_close',
                       'quick_model_controls', 'activity_panel', 'agent_options', 'agent_toolbox', 'onboarding', 'tools_panel', 'agent_activity',
-                      'workspace_mode_control', 'agent_pick')
+                      'workspace_mode_control', 'agent_pick', 'workspace_mode', 'breadcrumb', 'nav_index')
 
             def capture_locals(frame, event, arg):
                 if event == 'return' and frame.f_code is desktop.main.__code__:
-                    ui.update({name: frame.f_locals[name] for name in wanted if name in frame.f_locals})
+                    diagnostic_ui.update({name: frame.f_locals[name] for name in wanted if name in frame.f_locals})
 
             try:
                 sys.setprofile(capture_locals)
                 desktop.main(page)
             finally:
                 sys.setprofile(previous_profile)
-            if any(name not in ui for name in wanted):
+            if any(name not in diagnostic_ui for name in wanted):
                 raise RuntimeError('Desktop interaction QA dependencies were not captured')
+            if needs_controls:
+                ui = diagnostic_ui
         else:
             desktop.main(page)
         page.enable_screenshots = True
@@ -1158,6 +1190,26 @@ def main() -> int:
         page.window.left = 24
         page.window.top = 24
         page.update()
+
+        def diagnostic(stage):
+            if not args.diagnostics:
+                return
+            visible = list(walk_controls(page))
+            toolbox = diagnostic_ui.get('agent_toolbox')
+            snapshot = {'stage': stage,
+                'breadcrumb': getattr(diagnostic_ui.get('breadcrumb'), 'value', None),
+                'navigation': dict(diagnostic_ui.get('nav_index', {})),
+                'workspace_mode': dict(diagnostic_ui.get('workspace_mode', {})),
+                'session_state': {key: diagnostic_ui.get('agent_state', {}).get(key)
+                    for key in ('session_id', 'status', 'workspace_mode', 'workspace_agent')},
+                'toolbox_title': getattr(getattr(toolbox, 'title', None), 'value', None),
+                'toolbox_visible': getattr(toolbox, 'visible', None),
+                'toolbox_in_tree': any(node is toolbox for node in visible),
+                'visible_sections': [getattr(getattr(node, 'title', None), 'value', None)
+                    for node in visible if isinstance(node, ft.ExpansionTile)]}
+            report.setdefault('diagnostics', []).append(snapshot)
+            write_report()
+            print(json.dumps(snapshot, ensure_ascii=False), flush=True)
 
         async def capture_suite() -> None:
             try:
@@ -1173,7 +1225,8 @@ def main() -> int:
                             await click_text(page, DEMO_TOPIC)
                         await navigate(page, SCREENS[screen])
                         await asyncio.sleep(.35)
-                        interaction = await prepare_state(page, screen, data_dir, ui=ui)
+                        diagnostic('before-' + screen)
+                        interaction = await prepare_state(page, screen, data_dir, ui=ui, diagnostic=diagnostic)
                         await asyncio.sleep(args.settle)
                         navigation_target = interaction.get('navigation_target', SCREENS[screen])
                         expected_breadcrumb = f"工作台  /  {navigation_target}"
@@ -1202,7 +1255,9 @@ def main() -> int:
             except Exception as exc:
                 report["status"] = "failed"
                 report["error"] = f"{type(exc).__name__}: {exc}"
+                diagnostic('failure')
                 print(report["error"], file=sys.stderr, flush=True)
+                traceback.print_exc()
             finally:
                 write_report()
                 # Close only this Page's native window. No taskkill/process scan.

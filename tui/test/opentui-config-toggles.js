@@ -1,5 +1,5 @@
 // 配置面板开关组（OpenTUI）：实验能力开关在 /config 面板可见可切换，
-// configItems 从 settings 读取、configSet 走 settings_save（对齐 ZCode 设置开关族）。
+// configItems 从 settings 读取、configSet 走 settings_save。
 import assert from 'node:assert/strict';
 import { CONFIG_GROUPS, flattenConfig } from '../src/opentui/components/config-panel.js';
 import { createSessionController } from '../src/opentui/session-controller.js';

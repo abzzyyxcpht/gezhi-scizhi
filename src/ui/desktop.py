@@ -24,6 +24,8 @@ from ..config import ARTIFACT_DIR, ROOT_DIR
 from ..version import APP_VERSION
 from ..ui_preferences import normalize as normalize_ui, resolve_dark, SCHEMA as UI_SCHEMA
 from ..citation.gbt7714 import format_entry
+from .code_preview import CodePreview
+from .markdown_view import MarkdownView
 from .theme import build_theme, configure_typography, palette, repaint, style_inputs, ui_size, radius, code_font_family, motion_duration
 
 def main(page: ft.Page) -> None:
@@ -85,7 +87,7 @@ def main(page: ft.Page) -> None:
     page.window.on_event = native_window_event
     page.title = "格致 SciZhi · 通用与科研智能体"
     page.window.icon = str(ROOT_DIR/'assets'/'gezhi.ico')
-    # 外观：深浅主题由 settings.appearance_dark_mode 持久化；palette 是运行时
+    # 外观：主题偏好由 settings.theme_mode 持久化；palette 是运行时
     # 配色注册表，构建期经它取色的控件在深色启动时直接拿到暗色值——
     # 桌面控件树已全量 palette 化，无需启动期重映射（theme.repaint 只在
     # 运行期切换主题时按值补救动态构建的子树）。
@@ -106,13 +108,29 @@ def main(page: ft.Page) -> None:
     # 1273+；Column/STRETCH/Row 包裹/ResponsiveRow/alignment 五种重构都无效）。
     # 给内容列一个显式宽度即可从构造上杜绝溢出——定宽 < 最小窗宽(1080)，任何
     # 缩放下都放得下；不依赖 flet 的弹性宽度计算。
-    # 对标 DeepSeek Harness AppFrame：左栏 248（可收成轨道）、主台吃剩余、
-    # 右栏 276 为会话检查器。主列不再锁死 820——最大化窗口时不再留一整条空带。
+    # 导航与检查器各自占位，主列使用剩余宽度；窄窗口按需打开浮层导航。
     SIDE_W = 216
     RAIL_W = 340
     layout = {"page_w": 920, "rail": False, "sidebar_w": SIDE_W,
               "panel_manual": None, "panel_dialog": False, "navigation_open": False}
     PAGE_W = layout["page_w"]  # 构建期初值；resize 后改 layout 并回写控件 width
+    busy_indicators: dict[str, tuple[ft.ProgressRing, ft.Icon]] = {}
+
+    def busy_indicator(key: str, size: int) -> ft.Stack:
+        animated = reasoning_control.motion_enabled() and bool(motion_duration('panel'))
+        ring = ft.ProgressRing(width=size, height=size, stroke_width=2.5, visible=animated)
+        idle = ft.Icon(ft.Icons.HOURGLASS_EMPTY, size=size, color=palette.TEXT_2, visible=not animated)
+        busy_indicators[key] = (ring, idle)
+        return ft.Stack([ring, idle], width=size, height=size)
+
+    def refresh_busy_indicators() -> None:
+        animated = reasoning_control.motion_enabled() and bool(motion_duration('panel'))
+        for ring, idle in busy_indicators.values():
+            ring.visible, idle.visible = animated, not animated
+        if not animated:
+            for stroke in thinking_strokes:
+                stroke.animate_opacity = None
+                stroke.opacity = .65
     page.theme_mode = ft.ThemeMode.DARK if palette.dark else ft.ThemeMode.LIGHT
     if appearance['theme_mode'] == 'system':
         page.theme_mode = ft.ThemeMode.SYSTEM
@@ -135,7 +153,7 @@ def main(page: ft.Page) -> None:
         page.theme_mode = ft.ThemeMode.DARK if dark else ft.ThemeMode.LIGHT
         page.theme = build_theme(dark=dark)
         page.bgcolor = palette.BG
-        repaint(sidebar, stage, inspector, page.drawer, *pages)
+        repaint(sidebar, stage, inspector, page.drawer, agent_approval_card, *pages)
         page.update()
 
     # ============ 通用小件 ============
@@ -153,7 +171,7 @@ def main(page: ft.Page) -> None:
         # 不足 4.5:1（浅 4.24 / 深 3.98，实测），文字级 ACCENT_TEXT 两板均过。
         fg = palette.ACCENT_TEXT if color == palette.ACCENT else color
         return ft.Container(
-            bgcolor=fills.get(color, palette.SURFACE_3), border_radius=6,
+            bgcolor=fills.get(color, palette.SURFACE_3), border_radius=radius('small'),
             padding=ft.Padding(10, 4, 10, 4),
             content=ft.Text(text, size=11, color=fg, weight=ft.FontWeight.W_500))
 
@@ -185,24 +203,24 @@ def main(page: ft.Page) -> None:
     # ============ 页面 0：新建任务 ============
     tf_topic = ft.TextField(label="研究方向", hint_text="描述研究问题，或输入一个课题…",
                             multiline=True, min_lines=3, max_lines=5,
-                            text_size=16, border_radius=8, filled=True,
+                            text_size=16, border_radius=radius(), filled=True,
                             bgcolor=palette.SURFACE_2, color=palette.TEXT,
                             focused_border_color=palette.ACCENT_TEXT,
                             border_color=palette.BORDER_2, col=12,
                             shift_enter=True)
-    tf_kw = ft.TextField(label="关键词（空格分隔，可空）", border_radius=6,
+    tf_kw = ft.TextField(label="关键词（空格分隔，可空）", border_radius=radius(),
                          filled=True, bgcolor=palette.SURFACE_3,
                          border_color=palette.BORDER_2, col=12)
-    tf_y1 = ft.TextField(label="起始年", col=3, border_radius=6,
+    tf_y1 = ft.TextField(label="起始年", col=3, border_radius=radius(),
                          filled=True, bgcolor=palette.SURFACE_3,
                          border_color=palette.BORDER_2,
                          input_filter=ft.NumbersOnlyInputFilter())
-    tf_y2 = ft.TextField(label="截止年", col=3, border_radius=6,
+    tf_y2 = ft.TextField(label="截止年", col=3, border_radius=radius(),
                          filled=True, bgcolor=palette.SURFACE_3,
                          border_color=palette.BORDER_2,
                          input_filter=ft.NumbersOnlyInputFilter())
     dd_style = ft.Dropdown(
-        label="参考文献格式", value="gbt7714", border_radius=6, filled=True,
+        label="参考文献格式", value="gbt7714", border_radius=radius(), filled=True,
         col=6, bgcolor=palette.SURFACE_3, border_color=palette.BORDER_2,
         options=[ft.dropdown.Option("gbt7714", "GB/T 7714—2015"),
                                   ft.dropdown.Option("apa", "APA 7")])
@@ -277,7 +295,7 @@ def main(page: ft.Page) -> None:
                    if t["total_nodes"] else "")
             meta = " · ".join(x for x in (t.get("created_at", ""), pct) if x)
             history_col.controls.append(ft.Container(
-                border_radius=4, padding=ft.Padding(2, 13, 2, 13),
+                border_radius=radius('small'), padding=ft.Padding(2, 13, 2, 13),
                 border=ft.Border.only(bottom=ft.BorderSide(1, palette.BORDER)),
                 content=ft.Row([
                     ft.Container(width=8, height=8, border_radius=4, bgcolor=color),
@@ -305,7 +323,7 @@ def main(page: ft.Page) -> None:
             color = STATUS_COLOR.get(t["status"], palette.TEXT_2)
             on = t["task_id"] == state["task_id"]
             side_recent.controls.append(ft.Container(
-                padding=ft.Padding(8, 6, 8, 6), border_radius=6,
+                padding=ft.Padding(8, 6, 8, 6), border_radius=radius('small'),
                 bgcolor=palette.SURFACE_3 if on else "transparent",
                 content=ft.Row([
                     ft.Container(width=6, height=6, border_radius=3, bgcolor=color),
@@ -521,7 +539,7 @@ def main(page: ft.Page) -> None:
     ], spacing=4), padding=16, width=PAGE_W)
     monitor_log = ft.Container(
         expand=True, width=PAGE_W, bgcolor=palette.SURFACE_2,
-        border_radius=6, border=ft.Border.all(1, palette.BORDER),
+        border_radius=radius('panel'), border=ft.Border.all(1, palette.BORDER),
         padding=14, content=ft.Column([
             ft.Text("执行记录", size=12, weight=ft.FontWeight.W_500, color=palette.TEXT_2),
             log_col,
@@ -545,7 +563,7 @@ def main(page: ft.Page) -> None:
                                                  color=palette.ON_ACCENT)),
         ], spacing=10))
     hitl_bar = ft.Container(
-        visible=False, bgcolor=palette.SURFACE_2, border_radius=6,
+        visible=False, bgcolor=palette.SURFACE_2, border_radius=radius('panel'),
         border=ft.Border.all(1, palette.ACCENT), padding=12, width=PAGE_W,
         content=ft.Row([
             ft.Text("文献池待确认", size=13, weight=ft.FontWeight.W_600,
@@ -568,7 +586,7 @@ def main(page: ft.Page) -> None:
     board_bars = ft.Column(spacing=8)
 
     def _board_chip(text: str, color: str = palette.TEXT) -> ft.Container:
-        return ft.Container(bgcolor=palette.SURFACE_3, border_radius=6,
+        return ft.Container(bgcolor=palette.SURFACE_3, border_radius=radius('small'),
                             padding=ft.Padding(10, 3, 10, 3),
                             content=ft.Text(text, size=11, color=color))
 
@@ -578,7 +596,7 @@ def main(page: ft.Page) -> None:
         total = t.get("total_nodes") or 0
         done = t.get("done_nodes") or 0
         return ft.Container(
-            width=280, bgcolor=palette.SURFACE_2, border_radius=8, padding=12,
+            width=280, bgcolor=palette.SURFACE_2, border_radius=radius('panel'), padding=12,
             border=ft.Border.all(1, palette.BORDER), ink=True,
             on_click=lambda e, tid=t["task_id"]: open_task(tid),
             content=ft.Column([
@@ -675,7 +693,7 @@ def main(page: ft.Page) -> None:
 
     # ============ 页面 2：科研成果 ============
     pool_table = ft.DataTable(
-        border_radius=6, heading_row_color=palette.SURFACE_2,
+        border_radius=radius('panel'), heading_row_color=palette.SURFACE_2,
         column_spacing=20, horizontal_margin=12,
         columns=[ft.DataColumn(ft.Text("题名", color=palette.TEXT_2)),
                  ft.DataColumn(ft.Text("作者 / 年 / 来源", color=palette.TEXT_2)),
@@ -683,9 +701,9 @@ def main(page: ft.Page) -> None:
                  ft.DataColumn(ft.Text("去留理由", color=palette.TEXT_2)),
                  ft.DataColumn(ft.Text("", ))],
         rows=[])
-    digest_md = ft.Markdown("", selectable=True, extension_set=ft.MarkdownExtensionSet.GITHUB_WEB)
-    outline_md = ft.Markdown("", selectable=True, extension_set=ft.MarkdownExtensionSet.GITHUB_WEB)
-    audit_md = ft.Markdown("打开研究后可查看证据审计。", selectable=True,
+    digest_md = MarkdownView("", selectable=True, extension_set=ft.MarkdownExtensionSet.GITHUB_WEB)
+    outline_md = MarkdownView("", selectable=True, extension_set=ft.MarkdownExtensionSet.GITHUB_WEB)
+    audit_md = MarkdownView("打开研究后可查看证据审计。", selectable=True,
                            extension_set=ft.MarkdownExtensionSet.GITHUB_WEB)
     cite_col = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO, expand=True)
     cite_style_dd = ft.Dropdown(
@@ -693,14 +711,14 @@ def main(page: ft.Page) -> None:
         options=[ft.dropdown.Option("gbt7714", "GB/T 7714—2015"),
                  ft.dropdown.Option("apa", "APA 7")])
     banner = ft.Container(visible=False, width=PAGE_W, bgcolor=palette.SURFACE_2,
-                          border_radius=8,
+                          border_radius=radius('panel'),
                           padding=12, content=ft.Text("", size=13, color=palette.WARN))
     result_meta = ft.Row(spacing=8)
     dir_picker = ft.FilePicker()
     page.services.append(dir_picker)
 
     def meta_chip(text: str) -> ft.Container:
-        return ft.Container(bgcolor=palette.SURFACE_3, border_radius=6,
+        return ft.Container(bgcolor=palette.SURFACE_3, border_radius=radius('small'),
                             padding=ft.Padding(10, 3, 10, 3),
                             content=ft.Text(text, size=11, color=palette.INFO))
 
@@ -810,7 +828,7 @@ def main(page: ft.Page) -> None:
     # ---------- 证据图谱视图（成果页第 5 个页签） ----------
     graph_metrics = ft.Row(spacing=10, wrap=True)
     graph_tree = ft.Column(spacing=8)
-    net_image = ft.Image(src="", visible=False, width=520, border_radius=10)
+    net_image = ft.Image(src="", visible=False, width=520, border_radius=radius('panel'))
     net_meta = ft.Text("", size=11, color=palette.TEXT_2)
     net_card = soft_card(ft.Column([
         ft.Row([ft.Text("池内引用网络", size=13, weight=ft.FontWeight.W_500,
@@ -865,7 +883,7 @@ def main(page: ft.Page) -> None:
         page.run_thread(work)
 
     def g_chip(text: str, color: str) -> ft.Container:
-        return ft.Container(bgcolor=palette.SURFACE_2, border_radius=10,
+        return ft.Container(bgcolor=palette.SURFACE_2, border_radius=radius('panel'),
                             padding=ft.Padding(12, 5, 12, 5),
                             content=ft.Text(text, size=12, color=color))
 
@@ -1005,7 +1023,7 @@ def main(page: ft.Page) -> None:
         # 后台线程解析，大文件不卡界面
         stats_area.controls.clear()
         stats_area.controls.append(ft.Row([
-            ft.ProgressRing(width=22, height=22, stroke_width=2.5),
+            busy_indicator('stats', 22),
             ft.Text(f"正在分析 {src.name} …", size=13, color=palette.TEXT_2)],
             spacing=10))
         page.update()
@@ -1068,7 +1086,7 @@ def main(page: ft.Page) -> None:
         if r["outliers"]:
             for c, o in r["outliers"].items():
                 stats_area.controls.append(ft.Container(
-                    bgcolor=palette.SURFACE_2, border_radius=6, padding=8,
+                    bgcolor=palette.SURFACE_2, border_radius=radius('panel'), padding=8,
                     content=ft.Text(f"⚠ {c} 列发现 {len(o['rows'])} 个异常值"
                                     f"（行 {o['rows'][:8]}…，规则 {o['rule']}，"
                                     f"正常区间 {o['bounds'][0]}~{o['bounds'][1]}）",
@@ -1085,7 +1103,7 @@ def main(page: ft.Page) -> None:
             for a in r["chart_advice"]:
                 stats_area.controls.append(ft.Text(f"· {a}", size=12))
         imgs = [ft.Image(src=str(ARTIFACT_DIR / c), width=420,
-                         border_radius=8) for c in r["charts"]]
+                         border_radius=radius('panel')) for c in r["charts"]]
         stats_area.controls.append(ft.Row(imgs, wrap=True, spacing=10))
         page.update()
 
@@ -1126,7 +1144,7 @@ def main(page: ft.Page) -> None:
     agent_request = ft.TextField(
         label="交给智能体的任务",
         hint_text="描述需要完成的研究工作…",
-        multiline=True, min_lines=2, max_lines=5, border_radius=8,
+        multiline=True, min_lines=2, max_lines=5, border_radius=radius(),
         text_size=15, filled=True, bgcolor=palette.SURFACE_2,
         border=ft.InputBorder.NONE, content_padding=ft.Padding(2, 8, 2, 4),
         border_color=palette.BORDER_2, focused_border_color=palette.ACCENT_TEXT,
@@ -1212,12 +1230,12 @@ def main(page: ft.Page) -> None:
             page.update()
         return bool(update)
     agent_pick = ft.Dropdown(
-        label="专项智能体", value="research", width=200, border_radius=8, filled=True,
+        label="专项智能体", value="research", width=200, border_radius=radius(), filled=True,
         bgcolor=palette.SURFACE_2,
         options=[ft.dropdown.Option(spec.name, spec.title)
                  for spec in ROSTER.values()])
     agent_mode = ft.Dropdown(
-        label="执行模式", value="agent", width=180, border_radius=8, filled=True,
+        label="执行模式", value="agent", width=180, border_radius=radius(), filled=True,
         bgcolor=palette.SURFACE_2,
         options=[ft.dropdown.Option("agent", "执行任务"),
                  ft.dropdown.Option("plan", "只读规划"),
@@ -1234,7 +1252,7 @@ def main(page: ft.Page) -> None:
                                      on_click=lambda e: control_agent("agent_cancel"),
                                      style=ft.ButtonStyle(color={ft.ControlState.DEFAULT: palette.DANGER,
                                          ft.ControlState.DISABLED: palette.TEXT_3}))
-    agent_answer = ft.Markdown("", selectable=True, visible=False,
+    agent_answer = MarkdownView("", selectable=True, visible=False,
                                extension_set=ft.MarkdownExtensionSet.GITHUB_WEB)
     agent_mode_text = ft.Text(size=12, color=palette.TEXT_2)
     agent_mode_help = ft.Text('', size=11, color=palette.TEXT_3, max_lines=2,
@@ -1259,8 +1277,7 @@ def main(page: ft.Page) -> None:
     agent_session_label = ft.Text("", size=11, color=palette.TEXT_2)
     agent_sessions_col = ft.Column(spacing=4, scroll=ft.ScrollMode.AUTO)
     thinking_strokes = [ft.Container(width=3, height=8 + i * 3, border_radius=2,
-                                    bgcolor=palette.ACCENT, opacity=.3,
-                                    animate_opacity=ft.Animation(240)) for i in range(3)]
+                                    bgcolor=palette.ACCENT, opacity=.3) for i in range(3)]
     agent_busy = ft.Row(visible=False, spacing=8, controls=[
         ft.Row(thinking_strokes, spacing=3, vertical_alignment=ft.CrossAxisAlignment.CENTER),
         ft.Text("正在执行…", size=12,
@@ -1313,11 +1330,7 @@ def main(page: ft.Page) -> None:
 
     def _approval_diff_block(session_id: str, tool: str,
                              arguments: dict[str, Any]) -> ft.Control | None:
-        """文件写类工具的统一 diff：读目标文件现状，与参数中的新内容对比。
-
-        新增行绿底、删除行红底、@@ 区间头蓝字；只读失败或文件过大时返回 None
-        （回退到参数摘要）。
-        """
+        """只读比较文件现状与待执行编辑，沿用代码显示偏好并标明截断。"""
         from ..tools_workspace import _read_text, _resolve_in_root, _resolve_root
         try:
             root = _resolve_root(get_runtime(session_id), session_id)
@@ -1329,12 +1342,19 @@ def main(page: ft.Page) -> None:
                 lines = old_text.splitlines()
                 start = int(arguments.get("start_line") or 0)
                 end = int(arguments.get("end_line") or 0)
+                if not path.is_file() or not 1 <= start <= end <= len(lines):
+                    return ft.Text("行区间越界，无法预览这次修改。", size=11, color=palette.WARN)
                 new_text = "\n".join(lines[:start - 1]
                                      + str(arguments.get("new_text") or "").splitlines()
                                      + lines[end:]) + "\n"
             elif tool == "file.str_replace":
-                new_text = old_text.replace(str(arguments.get("old_str") or ""),
-                                            str(arguments.get("new_str") or ""), 1)
+                old = str(arguments.get("old_str") or "")
+                if not old:
+                    return ft.Text("替换目标不能为空，无法预览这次修改。", size=11, color=palette.WARN)
+                count = old_text.count(old)
+                if count != 1:
+                    return ft.Text(f"替换目标匹配 {count} 次，需要唯一匹配才能修改。", size=11, color=palette.WARN)
+                new_text = old_text.replace(old, str(arguments.get("new_str") or ""), 1)
             else:
                 return None
             if len(old_text.splitlines()) + len(new_text.splitlines()) > 4000:
@@ -1345,25 +1365,16 @@ def main(page: ft.Page) -> None:
         diff_iter = difflib.unified_diff(old_text.splitlines(), new_text.splitlines(),
                                          fromfile=f"a/{path.name}", tofile=f"b/{path.name}",
                                          lineterm="")
-        rows: list[ft.Control] = []
-        total = 0
-        for line in itertools.islice(diff_iter, 260):
-            total += 1
-            if line.startswith("+") and not line.startswith("+++"):
-                bg, fg = palette.SUCCESS_BG, palette.SUCCESS
-            elif line.startswith("-") and not line.startswith("---"):
-                bg, fg = palette.DANGER_BG, palette.DANGER
-            else:
-                bg, fg = "transparent", palette.INFO if line.startswith("@") else palette.TEXT_2
-            rows.append(ft.Container(bgcolor=bg, border_radius=2,
-                padding=ft.Padding(6, 0, 6, 0),
-                content=ft.Text(line, size=11, font_family=code_font_family(), color=fg,
-                                selectable=True)))
-        if not rows:
+        lines = list(itertools.islice(diff_iter, 261))
+        if not lines:
             return ft.Text("变更后文件内容与现状一致（无差异）。", size=11, color=palette.TEXT_3)
-        return ft.Container(bgcolor=palette.BG, border_radius=6,
+        rows: list[ft.Control] = [CodePreview("\n".join(lines[:260]), language='diff')]
+        if len(lines) > 260:
+            rows.append(ft.Text("仅展示前 260 行差异，后续修改已省略；请核对完整文件后审批。",
+                                size=11, color=palette.WARN, selectable=True))
+        return ft.Container(bgcolor=palette.BG, border_radius=radius('panel'),
             border=ft.Border.all(1, palette.BORDER), padding=8,
-            height=min(300, 40 + total * 18),
+            height=min(300, 64 + len(lines) * 24),
             content=ft.Column(rows, scroll=ft.ScrollMode.AUTO, spacing=1))
 
     def close_approval_dialog() -> None:
@@ -1397,7 +1408,7 @@ def main(page: ft.Page) -> None:
         tool_name = str(pending.get("tool", ""))
 
         extras: list[ft.Control] = []
-        # 三档门动作预览：目标/影响/风险类/可逆性，调用前可见（对标矩阵 §二.2）。
+        # 调用前展示目标、影响、风险分类与可逆性。
         action = pending.get("action") or {}
         if action:
             extras.append(ft.Column([
@@ -1474,7 +1485,7 @@ def main(page: ft.Page) -> None:
         agent_approval_card.visible = True
         agent_approval_card.disabled = False
         agent_approval_card.bgcolor = palette.SURFACE_2
-        agent_approval_card.border_radius = 8
+        agent_approval_card.border_radius=radius('panel')
         agent_approval_card.border = ft.Border.all(1, palette.BORDER_2)
         agent_approval_card.padding = 18
         agent_approval_card.content = ft.Column([
@@ -1897,7 +1908,7 @@ def main(page: ft.Page) -> None:
                     ft.Icon(ft.Icons.CHEVRON_RIGHT, size=14,
                             color=palette.TEXT_2),
                 ], spacing=6),
-                ink=True, on_click=open_session, border_radius=6,
+                ink=True, on_click=open_session, border_radius=radius('control'),
                 padding=ft.Padding(6, 4, 6, 4)))
 
     refresh_sessions()
@@ -1916,7 +1927,7 @@ def main(page: ft.Page) -> None:
         tier_now = research_permissions.normalize_tier(
             app_settings.load().get("agent_permission_tier"))
         tier_dd = ft.Dropdown(
-            width=220, dense=True, border_radius=6, value=tier_now,
+            width=220, dense=True, border_radius=radius('control'), value=tier_now,
             options=[ft.dropdown.Option(t, research_permissions.TIER_LABELS[t])
                      for t in research_permissions.TIERS],
             tooltip="档位只决定哪些动作进入审批流；工具级允许/询问/拒绝仍按下方策略")
@@ -1941,7 +1952,7 @@ def main(page: ft.Page) -> None:
         ]
         for name, spec in rt.tools.items():
             dd = ft.Dropdown(
-                width=156, dense=True, border_radius=6,
+                width=156, dense=True, border_radius=radius('control'),
                 value=current.get(name, _default_decision(spec.capability)),
                 options=[ft.dropdown.Option("allow", "允许"),
                          ft.dropdown.Option("ask", "每次询问"),
@@ -2019,7 +2030,7 @@ def main(page: ft.Page) -> None:
         content=ft.Column([
             ft.Container(content=ft.Icon(ft.Icons.AUTO_AWESOME_OUTLINED,
                 size=26, color=palette.ACCENT_TEXT), width=52, height=52,
-                alignment=ft.Alignment.CENTER, border_radius=16,
+                alignment=ft.Alignment.CENTER, border_radius=radius('dialog'),
                 bgcolor=palette.ACCENT_BG),
             ft.Text("从一个问题开始", size=24, weight=ft.FontWeight.W_500,
                     color=palette.TEXT, text_align=ft.TextAlign.CENTER),
@@ -2181,7 +2192,7 @@ def main(page: ft.Page) -> None:
     ], spacing=12, scroll=ft.ScrollMode.AUTO, expand=True)
     # Reparent the original controls as one docked composer; their callbacks,
     # draft generations and session identities stay attached to the same objects.
-    agent_composer = ft.Container(width=PAGE_W, padding=12, border_radius=16,
+    agent_composer = ft.Container(width=PAGE_W, padding=12, border_radius=radius('panel'),
         bgcolor=palette.SURFACE_2, border=ft.Border.all(1, palette.BORDER_2),
         content=ft.Column([
             agent_request, composer.attachments,
@@ -2507,7 +2518,7 @@ def main(page: ft.Page) -> None:
 
     def run_doctor_ui(e) -> None:
         doctor_col.controls = [ft.Row([
-            ft.ProgressRing(width=18, height=18, stroke_width=2.5),
+            busy_indicator('doctor', 18),
             ft.Text("自检中…（含网络探测，约数秒）", size=12, color=palette.TEXT_2)],
             spacing=8)]
         page.update()
@@ -2650,13 +2661,14 @@ def main(page: ft.Page) -> None:
         for key, control in feature_switches.items():
             control.value = saved[key]
         reasoning_motion["enabled"] = bool(saved.get("ui_animations", True))
+        configure_typography(saved)
         reasoning_control.refresh(saved.get("llm_reasoning_effort", "auto"))
         set_reasoning.value = saved.get("llm_reasoning_effort", "auto")
-        configure_typography(saved)
+        refresh_busy_indicators()
         apply_theme(resolve_dark(saved, system_dark=page.platform_brightness != ft.Brightness.LIGHT))
         page.theme_mode = (ft.ThemeMode.SYSTEM if saved['theme_mode'] == 'system' else
                            ft.ThemeMode.DARK if palette.dark else ft.ThemeMode.LIGHT)
-        apply_appearance(sidebar, stage, inspector, page.drawer, *pages)
+        apply_appearance(sidebar, stage, inspector, page.drawer, agent_approval_card, *pages)
         workspace_mode_control._paint()
         page.theme = build_theme(dark=palette.dark)
         refresh_shortcut_hints()
@@ -2752,7 +2764,7 @@ def main(page: ft.Page) -> None:
 
     # ============ 导航与轮询 ============
     mode_badge = ft.Container(
-        border_radius=6, padding=ft.Padding(8, 4, 8, 4), bgcolor=palette.SURFACE_3,
+        border_radius=radius('small'), padding=ft.Padding(8, 4, 8, 4), bgcolor=palette.SURFACE_3,
         content=ft.Text("", size=9, color=palette.TEXT_2, text_align=ft.TextAlign.CENTER))
 
     def refresh_mode_badge() -> None:
@@ -2890,14 +2902,14 @@ def main(page: ft.Page) -> None:
         if spec.mode == "primary":
             continue
         inspect_agents.controls.append(ft.Container(
-            padding=ft.Padding(6, 4, 6, 4), border_radius=4,
+            padding=ft.Padding(6, 4, 6, 4), border_radius=radius('small'),
             content=ft.Text(spec.title, size=11, color=palette.TEXT_2),
             on_click=lambda e, n=spec.name: _pick_agent(n),
             ink=True))
 
     def refresh_inspector(art: dict[str, Any] | None = None,
                           ctx: Any = None) -> None:
-        """右侧检查器：对标 OpenCode session sidebar / DSH rightbar。"""
+        """刷新当前任务、证据计数、权限与执行状态。"""
         if ctx is None and state["task_id"]:
             ctx = service.get(state["task_id"])
         if art is None and state["task_id"]:
@@ -2919,7 +2931,7 @@ def main(page: ft.Page) -> None:
         cite_n = len(art.get("citations") or [])
         def _ev_row(label: str, value: str, tab: int) -> ft.Container:
             return ft.Container(
-                padding=ft.Padding(0, 4, 0, 4), border_radius=4,
+                padding=ft.Padding(0, 4, 0, 4), border_radius=radius('small'),
                 content=ft.Row([
                     ft.Text(label, size=12, color=palette.TEXT_2, expand=True),
                     ft.Text(value, size=12, color=palette.TEXT),
@@ -2977,7 +2989,7 @@ def main(page: ft.Page) -> None:
                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
         ], spacing=10, expand=True, width=SIDE_W - 24))
 
-    # 主台 inset：OpenCode new layout 的 gap + 圆角台面，不用发光。
+    # 详情面板在宽窗口停靠，窄窗口以弹层显示。
     def close_panel() -> None:
         tools_panel.epoch += 1
         if layout["panel_dialog"]:
@@ -3180,7 +3192,7 @@ def main(page: ft.Page) -> None:
                 notif_overlay,
             ], expand=True)))
 
-    # 右栏：当前任务与证据计数（DSH rightbar / OpenCode session sidebar）
+    # 右栏显示当前任务与证据计数。
     inspector = ft.Container(
         width=RAIL_W, bgcolor=palette.BG,
         padding=ft.Padding(12, 14, 14, 14),

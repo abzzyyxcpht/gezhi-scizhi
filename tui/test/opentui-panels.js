@@ -37,7 +37,7 @@ assert(w10.rows.some((r) => r.name === "c10"), "选中项在窗口内")
 const w19 = completionWindow(many, 19, 6)
 assert(w19.start === 14, "滑窗贴底")
 
-// 命令面板：复用 Ink 版 paletteCommands（中文搜索）
+// 命令面板：使用 paletteCommands（中文搜索）
 const rows = paletteCommands(COMMANDS, [], "模式", "research")
 assert(rows.length > 0 && rows.some((r) => r.name === "mode"), "中文搜索命中 /mode")
 const rowsEmpty = paletteCommands(COMMANDS, [], "不存在的命令xyz", "research")

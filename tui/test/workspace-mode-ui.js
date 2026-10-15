@@ -1,4 +1,4 @@
-// 工作区模式（Ink workspace-mode-ui 的 OpenTUI 移植，opentui 语义子集）：
+// 工作区模式：
 // 持久模式读取、切换失败回滚 + 草稿保留、自然语言按模式路由、已有会话保持原 agent、
 // 切换不发起工作、审批等待期间可切模式、远程走 agent_run、发起被拒保留请求。
 // 注：Ink 的 expected_revision 乐观并发协议、保存中 pending 反馈（保存→通用）未在

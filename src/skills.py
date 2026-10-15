@@ -1,4 +1,4 @@
-"""技能包系统（对标 Claude Code Skills / Anthropic Agent Skills）：skills/<名>/SKILL.md。
+"""技能包系统：从 skills/<名>/SKILL.md 读取声明与使用规则。
 
 渐进式披露三级结构：
 - L1 元数据（name + description）：系统提示词只放索引表（prompts.build 合流），

@@ -41,8 +41,8 @@ let f = await renderShell(base)
 assert(f.includes("格致") && f.includes("◇"), "品牌头与模式徽标")
 assert(f.includes("glm-5"), "侧栏停靠渲染模型区")
 assert(f.includes("你好，格致"), "会话行渲染")
-assert(f.includes("ctx 12% · 8.2K/68K"), "footer 行 2 上下文占用（ZCode 紧凑数字 badge）")
-assert(f.includes("⌘O 展开"), "footer 行 1 expand 提示（键帽化）")
+assert(f.includes("ctx 12% · 8.2K/68K"), "footer 行 2 上下文占用")
+assert(f.includes("Ctrl+O 展开"), "footer 行 1 expand 提示（键帽化）")
 assert(f.includes("[◇ 通用]") && f.includes("[D:\\proj]"), "footer 行 1 槽位（mode 着色值原样）")
 assert(f.includes("模式"), "输入框标题含模式")
 
@@ -62,6 +62,10 @@ assert(f.includes("格致"), "shimmer 帧播放中品牌头稳定")
 f = await renderShell({ workspaceMode: "general", terminalWidth: 120 })
 assert(f.includes("格致"), "空状态渲染")
 
+
+// A wrapped startup greeting still belongs to an empty conversation.
+f = await renderShell({ ...base, terminalWidth: 54, lines: [{ text: "格致 SciZhi（OpenTUI 引擎）· 输入消息回车发送，Ctrl+G 切换模式" }], sidebar: { hidden: true } }, { width: 54 })
+assert(f.includes("格 致 · 通 用"), "wrapped startup text preserves the welcome panel")
 
 // 启动屏
 const setupBoot = await testRender(React.createElement(StartupScreen, { workspaceMode: "research", spinnerFrame: 40, shimmerFrame: 30 }), { width: 60, height: 14 })

@@ -1,4 +1,4 @@
-// Footer 两行槽位系统 —— 纯逻辑（对齐 kimi-code components/chrome/footer.ts）
+// Footer 两行槽位系统 —— 纯逻辑
 // 行 1：可配置槽位 + 右侧 expand 提示 + SWRR 技巧轮转（tick 驱动，非墙钟）
 // 行 2：左侧预警 + 右侧上下文占用
 
@@ -51,8 +51,8 @@ export function resolveSlots(slotValues, order = DEFAULT_SLOTS) {
 
 /**
  * 上下文占用文案：`context: 47% (128.4K/272K)`。
- * 紧凑数字对齐 ZCode formatCompactTokenCount（apps/zcode-cli app-input-status）：
- * <1k 原样 / <1M → 一位小数 K（去 .0）/ else M；ZCode 用大写 K/M。
+ * 紧凑数字格式：
+ * <1k 原样 / <1M → 一位小数 K（去 .0）/ else M；使用大写 K/M。
  */
 export function formatContextUsage(used, total) {
   const pct = total > 0 ? Math.round((used / total) * 100) : 0

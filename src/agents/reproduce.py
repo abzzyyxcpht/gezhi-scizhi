@@ -125,7 +125,7 @@ def reproduce_run(ctx: TaskContext, params: dict[str, Any]) -> dict[str, Any]:
            "summary": f"复现执行 {passed}/{len(results)} 条命令通过"}
     ctx.artifacts["reproduce_run"] = run
     ctx.emit("node", node="reproduce_run", message=run["summary"])
-    # 写入科研记录（experiment）：真实结果，失败也入库（AI Scientist-v2 对标）
+    # 写入科研记录（experiment）：保存实际结果，失败也入库
     try:
         from ..research_notebook import handle as notebook_save
         notebook_save({"cmd": "notebook_save", "record": {

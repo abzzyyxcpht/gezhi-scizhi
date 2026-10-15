@@ -1,4 +1,4 @@
-// 远程模式（Ink remote-ui 的 OpenTUI 移植）：不启动本机引擎、严格 HTTP 探测纪律、
+// 远程模式：不启动本机引擎、严格 HTTP 探测纪律、
 // 远程导出内容本地安全落盘（服务器路径永不采用）、会话阅读器脱敏、令牌零泄漏。
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

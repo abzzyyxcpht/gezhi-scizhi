@@ -61,7 +61,7 @@ const b = bridge()
 const controller = createSessionController({ bridge: b, sleep: () => Promise.resolve() })
 let exited = false
 const setup = await testRender(React.createElement(OpenTuiApp, { reducedMotion: false, controller, onExit: () => { exited = true } }), {
-  width: 110, height: 28, targetFps: 30, // 28 行：config/快捷键面板窗口化后小终端仍可分页（溢出指示 + 滚动）
+  width: 110, height: 28, targetFps: 30, exitOnCtrlC: false, // 28 行：config/快捷键面板窗口化后小终端仍可分页（溢出指示 + 滚动）
 })
 
 let frame = await stepUntil(setup, (f) => f.includes("◎"))
@@ -134,6 +134,18 @@ await React.act(async () => { await setup.mockInput.typeText("xyz") })
 await React.act(async () => { setup.mockInput.pressKey("u", { ctrl: true }) })
 frame = await stepUntil(setup, (f) => !f.includes("xyz"))
 assert(frame !== null, "Ctrl+U 清空草稿")
+
+// Ctrl+C: the first press warns, the second press exits without a draft.
+await React.act(async () => { setup.mockInput.pressKey("c", { ctrl: true }) })
+await stepUntil(setup, (f) => f.includes("再按一次 Ctrl+C 退出"))
+assert(!exited, "Ctrl+C first press keeps the terminal open")
+await React.act(async () => { await setup.mockInput.typeText("draft-between-exit-keys") })
+await React.act(async () => { setup.mockInput.pressKey("u", { ctrl: true }) })
+await React.act(async () => { setup.mockInput.pressKey("c", { ctrl: true }) })
+assert(!exited, "typing between Ctrl+C presses cancels the pending exit")
+await React.act(async () => { setup.mockInput.pressKey("c", { ctrl: true }) })
+assert(exited, "Ctrl+C second press within two seconds exits")
+exited = false
 
 // Ctrl+D 退出
 await React.act(async () => { setup.mockInput.pressKey("d", { ctrl: true }) })

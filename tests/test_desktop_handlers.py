@@ -121,12 +121,11 @@ class DesktopHandlerTest(unittest.TestCase):
             self.assertGreaterEqual(len(all_handlers), 10,
                                     f"只收集到 {len(all_handlers)} 个回调，遍历逻辑可能失效")
             kinds = {tname for tname, _attr, _fn in all_handlers}
-            self.assertIn("Container", kinds)       # 左栏导航（DSH sidebar 席位）
+            self.assertIn("Container", kinds)       # 左栏导航与可点击卡片
             self.assertIn("IconButton", kinds)      # 种子任务的卡片删除按钮
 
             # 左栏导航：点它们切换页面（事件会驱动 body.content 换页）。
-            # 导航按钮在 ZCode 对标轮由 Container 改为 TextButton（静态可点击感），
-            # 两种容器类型的 on_click 都算可点击席位，逐个点一遍即全页面回调冒烟。
+            # 容器与文本按钮均可承载导航回调，逐个触发以覆盖所有页面。
             nav = [fn for tname, attr, fn in all_handlers
                    if attr == "on_click" and tname in ("Container", "TextButton")]
             self.assertGreaterEqual(len(nav), 6, "未找到 6 个导航项")

@@ -1,4 +1,4 @@
-// 颜色插值与 shimmer 微光 —— 纯函数，可无终端单测（对齐 ZCode app-motion.tsx 思路）
+// 颜色插值与 shimmer 微光 —— 纯函数，可无终端单测
 // shimmer：一个高亮带头扫过文本，逐字符用余弦函数计算与扫过带的距离→强度→base↔accent 插值
 
 /** hex 线性插值，t∈[0,1] */

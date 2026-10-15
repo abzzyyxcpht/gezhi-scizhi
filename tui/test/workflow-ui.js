@@ -1,4 +1,4 @@
-// 工作流视图（Ink workflow-ui 的 OpenTUI 移植）：
+// 工作流视图：
 // /open 直连引擎 command_center（任务上下文跟随）、/menu 面板等价入口。
 // 注：Ink 的客户端节点链渲染（2/2 节点 ●/✔）由 Python command_center 文本承接；
 // 迟到响应不得覆盖所选工作流由串行提交结构性保证（忙时排队）。

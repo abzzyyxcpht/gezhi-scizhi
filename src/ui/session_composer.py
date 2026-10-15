@@ -8,7 +8,8 @@ from pathlib import Path
 import flet as ft
 from ..bridge import handle
 from ..workbench import redact
-from .theme import palette, style_inputs
+from .theme import palette, radius, style_inputs
+from .markdown_view import MarkdownView
 
 _MD = ft.MarkdownExtensionSet.GITHUB_WEB
 
@@ -57,7 +58,7 @@ class SessionComposer:
         self._open_step = None     # 最近收到 delta 且未 finalize 的 step
         self.attachments = ft.Row(wrap=True, spacing=6)
         self.preview = ft.Container(visible=False, padding=14, bgcolor=palette.SURFACE_2,
-            content=ft.Markdown('', selectable=True, extension_set=ft.MarkdownExtensionSet.GITHUB_WEB))
+            content=MarkdownView('', selectable=True, extension_set=ft.MarkdownExtensionSet.GITHUB_WEB))
         self.transcript = ft.Column(spacing=14)
         self.info = ft.Text('新建会话后，消息会保留在同一研究讨论中。', size=11, color=palette.TEXT_3,
                             max_lines=2, overflow=ft.TextOverflow.ELLIPSIS)
@@ -77,10 +78,10 @@ class SessionComposer:
         ], wrap=True, spacing=4)
         self.side_input = ft.TextField(label='围绕当前材料继续追问', multiline=True, min_lines=2, max_lines=5,
                                        on_change=self._side_draft_changed)
-        self.side_answer = ft.Markdown('', selectable=True, extension_set=ft.MarkdownExtensionSet.GITHUB_WEB)
+        self.side_answer = MarkdownView('', selectable=True, extension_set=ft.MarkdownExtensionSet.GITHUB_WEB)
         self.side_notice = ft.Text('独立讨论，主会话保持原样。', size=11, color=palette.TEXT_2)
         self.side_send = ft.FilledButton('发送', on_click=lambda e: self.send_side())
-        self.side = ft.Container(visible=False, width=320, padding=14, bgcolor=palette.SURFACE_2, border_radius=8,
+        self.side = ft.Container(visible=False, width=320, padding=14, bgcolor=palette.SURFACE_2, border_radius=radius('panel'),
             content=ft.Column([ft.Row([ft.Text('侧边讨论', weight=ft.FontWeight.W_600, expand=True),
                 ft.IconButton(ft.Icons.CLOSE, tooltip='收起侧边讨论', on_click=lambda e: self.close_side())]), self.side_notice,
                 self.side_answer, self.side_input, ft.Row([self.side_send,
@@ -125,14 +126,14 @@ class SessionComposer:
 
     def _bubble(self, role: str, text: str) -> ft.Container:
         """user/assistant 消息气泡（与旧 messages 渲染同款样式）。"""
-        return ft.Container(padding=12, border_radius=6,
+        return ft.Container(padding=12, border_radius=radius('panel'),
             bgcolor=palette.SURFACE_2 if role == 'user' else palette.SURFACE,
             content=ft.Column([ft.Text('研究者' if role == 'user' else '智能体',
                 size=11, color=palette.ACCENT_TEXT),
-                ft.Markdown(text, selectable=True, extension_set=_MD)], spacing=6))
+                MarkdownView(text, selectable=True, extension_set=_MD)], spacing=6))
 
-    def _assistant_shell(self, md: ft.Markdown) -> ft.Container:
-        return ft.Container(padding=12, border_radius=6, bgcolor=palette.SURFACE,
+    def _assistant_shell(self, md: MarkdownView) -> ft.Container:
+        return ft.Container(padding=12, border_radius=radius('panel'), bgcolor=palette.SURFACE,
             content=ft.Column([ft.Text('智能体', size=11, color=palette.ACCENT_TEXT), md], spacing=6))
 
     def _add_tool_row(self, call_id: str, name: str, arguments: dict) -> None:
@@ -266,7 +267,7 @@ class SessionComposer:
                 step = (self._turn_index, p.get("step"))
                 md = self.stream_bubbles.get(step)
                 if md is None:
-                    md = ft.Markdown('', selectable=True, extension_set=_MD)
+                    md = MarkdownView('', selectable=True, extension_set=_MD)
                     self.stream_bubbles[step] = md
                     shell = self._assistant_shell(md)
                     self._step_shells[step] = shell
@@ -288,7 +289,7 @@ class SessionComposer:
                 if md is None:
                     if not content and p.get("tool_calls"):
                         continue  # 纯工具调用步：tool_call 行已展示
-                    md = ft.Markdown(content, selectable=True, extension_set=_MD)
+                    md = MarkdownView(content, selectable=True, extension_set=_MD)
                     self._message_index += 1
                     key = step if step is not None else (self._turn_index, 'message', self._message_index)
                     self.stream_bubbles[key] = md

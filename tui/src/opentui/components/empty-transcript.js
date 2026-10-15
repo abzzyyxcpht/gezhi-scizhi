@@ -1,4 +1,4 @@
-// 空会话中央 logo —— 双模式 ASCII 艺术 + shimmer 微光（对齐 ZCode app-empty-transcript）
+// 空会话中央 logo —— 双模式 ASCII 艺术 + shimmer 微光
 // 窄终端契约：所有行按可用宽度裁剪（clipToWidth），10 列也不横向溢出。
 import React from "react"
 import { TOKENS, MODE_TOKENS, modeColor } from "../theme/tokens.js"

@@ -7,6 +7,7 @@ import pytest
 from src.model_registry import EFFORTS
 from src.ui.control_tower import ReasoningControl
 from src.ui.theme import palette
+from src.ui_preferences import DESIGN
 
 
 def make_control(value="auto", motion=True, save=None):
@@ -233,3 +234,13 @@ def test_environment_reduced_motion_keeps_confirmation_and_stops_activity(monkey
     assert control.advanced.popup_animation_style.duration == ft.Duration()
     assert control.advanced.popup_animation_style.reverse_duration == ft.Duration()
     assert "已保存" in control.note.value
+
+
+def test_selection_feedback_uses_shared_motion_timings():
+    control, _ = make_control('high')
+    control.pulse(1, active=True)
+    assert control.buttons['high'].style.animation_duration == DESIGN['motion']['feedback_ms']
+    assert control.advanced.style.animation_duration == DESIGN['motion']['feedback_ms']
+    assert control.bars[0].animate.duration == DESIGN['motion']['panel_ms']
+    assert control.advanced.popup_animation_style.duration == DESIGN['motion']['panel_ms']
+    assert control.advanced.popup_animation_style.reverse_duration == DESIGN['motion']['feedback_ms']

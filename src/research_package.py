@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """可复现研究包：把一次科研任务的上下文、工具、环境与数据版本打成 zip。
 
-对标矩阵「结果必须有证据链和产物链」的验收口径：导出包可复现
+导出包保留证据链和产物链，记录
 prompt / context / 工具 / 环境 / 数据版本。
 
-边界（与交接包一致，不假装能做到的事）：
+导出范围与交接包一致：
 - 只整理**已记录**的状态，不重跑实验、不验证科学真伪、不补全缺失材料；
 - 密钥脱敏（settings 里的 API Key 只保留「是否配置」布尔值）；
 - 缺失/失败/模拟材料进 ``manifest.deficits`` 如实标注，不静默填充。
@@ -18,6 +18,7 @@ import uuid
 import zipfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from . import config, service
 from .prompts import PROMPT_VERSION
@@ -40,14 +41,41 @@ _ARTIFACT_LABELS = {
 
 
 def _sanitized_settings() -> dict[str, Any]:
-    """settings 快照：密钥换成是否配置的布尔值，其余原样（偏好可复现）。"""
+    """Export a detached safe projection and retain only credential presence."""
     from . import settings as app_settings
+    from .workbench import redact
 
-    snapshot = dict(app_settings.load())
+    original = app_settings.load()
+    snapshot = redact(original)
     for key in _SECRET_KEYS:
-        if key in snapshot:
-            snapshot[key] = bool(snapshot[key])
+        if key in original:
+            snapshot[key] = bool(original[key])
+    for key in ('llm_base_url', 'embedding_base_url'):
+        if key in original:
+            snapshot[key] = _safe_endpoint(snapshot[key])
+    connections = original.get('model_connections', [])
+    if isinstance(connections, list):
+        for connection, safe in zip(connections, snapshot.get('model_connections', [])):
+            if isinstance(connection, dict) and isinstance(safe, dict):
+                safe['api_key'] = safe['has_api_key'] = bool(connection.get('api_key'))
+                if 'base_url' in connection:
+                    safe['base_url'] = _safe_endpoint(safe['base_url'])
     return snapshot
+
+
+def _safe_endpoint(value: Any) -> str:
+    """Keep endpoint identity; legacy URLs may contain embedded credentials."""
+    if not value:
+        return ''
+    if not isinstance(value, str):
+        return '[REDACTED]'
+    try:
+        url = urlsplit(value)
+        if url.scheme not in {'http', 'https'} or not url.netloc:
+            return '[REDACTED]'
+        return urlunsplit((url.scheme, url.netloc.rsplit('@', 1)[-1], url.path, '', ''))
+    except ValueError:
+        return '[REDACTED]'
 
 
 def _deficits(ctx: Any, art: dict[str, Any]) -> list[dict[str, str]]:

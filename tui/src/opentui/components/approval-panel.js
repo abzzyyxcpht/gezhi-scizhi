@@ -1,4 +1,4 @@
-// 审批面板（ZCode ApprovalPanel）：警告色边框 + 编号选项 + 键盘独占
+// 审批面板：警告色边框 + 编号选项 + 键盘独占
 import React from "react"
 import { TOKENS } from "../theme/tokens.js"
 import { SYMBOLS, HINTS } from "../theme/symbols.js"

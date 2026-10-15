@@ -1,4 +1,4 @@
-// 思考强度反馈（Ink reasoning-feedback 的 OpenTUI 等价，纯控制器层）：
+// 思考强度反馈：
 // 读取不伪装保存回执、保存确认、未知强度如实拒绝、远程不发送配置。
 import assert from 'node:assert/strict';
 import { createSessionController } from '../src/opentui/session-controller.js';

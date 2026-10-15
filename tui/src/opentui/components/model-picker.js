@@ -1,4 +1,4 @@
-// 科研模型配置面板（/models|/model）—— Ink ModelPicker 的 OpenTUI 移植
+// 科研模型配置面板（/models|/model）——模型目录、选择与保存状态
 // 状态机在 session-controller（modelPickerOpen/Move/Tab/Save/Close），本组件只渲染。
 // 小终端自适应：候选窗口按终端高度收缩（modelPickerGeometry 单一推导，布局预算与渲染同源），
 // 错误行/页脚优先保留，候选项吸收剩余空间并向光标居中。

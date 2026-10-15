@@ -27,3 +27,21 @@ def test_code_theme_choices_change_highlighting_without_changing_text():
     view.refresh({'code_light_theme': 'atom-one-light'}, dark=False)
     assert before != [s.style.color for s in view.code_lines[0].spans]
     assert ''.join(s.text for s in view.code_lines[0].spans) == 'return 42'
+
+
+def test_unchanged_code_keeps_native_controls_during_appearance_refresh():
+    view = CodePreview('return 42', language='python', options={'code_font_size': 14}, dark=False)
+    original = view.code_lines[0]
+    view.refresh({'code_font_size': 14, 'ui_font_size': 20}, dark=False)
+    assert view.code_lines[0] is original
+    view.refresh({'code_font_size': 18}, dark=False)
+    assert view.code_lines[0] is not original
+    assert view.code_lines[0].size == 18
+
+
+def test_appending_prose_does_not_rebuild_completed_code():
+    from src.ui.markdown_view import MarkdownView
+    view = MarkdownView('```python\nreturn 42\n```\n\nAfter', options={}, dark=False)
+    original = view.controls[0].code_lines[0]
+    view.value += ' this code.'
+    assert view.controls[0].code_lines[0] is original

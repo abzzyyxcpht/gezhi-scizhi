@@ -2,7 +2,7 @@
 // 运行: node test/opentui-design.js
 import { TOKENS, LIGHT_TOKENS, MODE_TOKENS, paletteFor, modeColor } from "../src/opentui/theme/tokens.js"
 import { applyTheme, currentTheme, detectTheme } from "../src/opentui/theme/theme.js"
-import { SYMBOLS, BORDER, HINTS } from "../src/opentui/theme/symbols.js"
+import { SYMBOLS, BORDER, HINTS, KBD, shortcutHint } from "../src/opentui/theme/symbols.js"
 import { blendHex, shimmerText } from "../src/opentui/motion/blend.js"
 import {
   BRAILLE,
@@ -40,7 +40,11 @@ assert(MODE_TOKENS.general.symbol === "◇" && MODE_TOKENS.research.symbol === "
 // symbols
 assert(SYMBOLS.bullet === "●" && SYMBOLS.switchPending === "◌", "符号表关键项")
 assert(BORDER.rounded === "rounded" && BORDER.single === "single", "边框风格枚举")
-assert(HINTS.navigate.includes("↑↓"), "hint 词汇表（ZCode 键帽化）")
+assert(HINTS.navigate.includes("↑↓"), "hint 词汇表")
+
+assert(KBD.ctrl === "Ctrl", "Control and Command are distinct physical keys")
+assert(shortcutHint("Ctrl+P 命令面板") === "Ctrl+P 命令面板", "shortcut hints preserve the actual Control binding")
+assert(HINTS.expand === "Ctrl+O 展开" && HINTS.collapse === "Ctrl+O 收起", "expand hints match the registered shortcut")
 
 // blend / shimmer
 assert(blendHex("#000000", "#ffffff", 0.5) === "#808080", "blendHex 中点")
@@ -73,7 +77,7 @@ assert(tr.detail.endsWith("…") && tr.label.length + 1 + tr.detail.length + 1 +
 
 // 主题热切换
 applyTheme("dark")
-assert(TOKENS.background === "#0f1419" && currentTheme() === "dark", "applyTheme 深色（ZCode 终端主题 defaults.ts）")
+assert(TOKENS.background === "#0f1419" && currentTheme() === "dark", "applyTheme 深色")
 applyTheme("light")
 assert(TOKENS.background === LIGHT_TOKENS.background && TOKENS.modeGeneral === LIGHT_TOKENS.modeGeneral, "applyTheme 浅色（原地热切换）")
 const light = await detectTheme({ waitForThemeMode: async () => "light" })

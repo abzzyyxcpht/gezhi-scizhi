@@ -1,5 +1,4 @@
-// 科研时间线面板（/timeline，科研模式创新模块）：把科研流水线按 ZCode workflow-timeline 的
-// 词汇终端化 —— 轨(rail) / 站(station) / 灯(lamp) / 计量条(meter) / 空洞(hole) / 计数行。
+// 科研时间线面板（/timeline）：用阶段、连线、状态灯、计量条与计数行展示研究进展。
 // 数据来自既有 bridge 只读命令（Python 零改动）：goal + 假设/共识/事实/实验树/待办。
 // 小终端窗口化：timelineGeometry 单一推导，预算与渲染同源；光标只落站点行。
 import React from "react"
@@ -21,7 +20,7 @@ export const TIMELINE_STAGES = [
 
 /**
  * 行模型（渲染与预算同源）。station 行为光标可落行；header/rail/summary/footer 为家具行。
- * status：done=有数据 / pending=空洞（ZCode hole：未写的阶段画虚线空灯）。
+ * status：done=有数据 / pending=空洞（未写的阶段画虚线空灯）。
  */
 export function timelineRowModel(data = {}) {
   const stages = data.stages || []
@@ -110,7 +109,7 @@ export function ResearchTimelinePanel({ data = {}, cursor = 0, scroll = 0, maxVi
   )
 }
 
-/** 计数行数据构造（ZCode 计数行：✓n · ◌n · ✕n · ○n，0 缺席） */
+/** 计数行数据构造（✓n · ◌n · ✕n · ○n，0 缺席） */
 export function timelineCounts(stages = []) {
   const by = (s) => stages.filter((st) => st.status === s).length
   return [

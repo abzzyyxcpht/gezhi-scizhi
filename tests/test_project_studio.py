@@ -12,6 +12,7 @@ from unittest import mock
 import flet as ft
 
 from src.ui import project_studio as ui
+from src.ui.markdown_view import MarkdownView
 
 
 def controls(root):
@@ -231,7 +232,7 @@ class ProjectStudioTest(unittest.TestCase):
         self.panel.up_button.on_click(None)
         self.assertEqual(self.request("project_files")["path"], "")
         self.click_label("notes.md")
-        self.assertIsInstance(self.panel.preview.controls[0], ft.Markdown)
+        self.assertIsInstance(self.panel.preview.controls[0], MarkdownView)
         self.panel.attach_button.on_click(None)
         self.attached.assert_called_with(str(Path(before) / "notes.md"))
         self.assertEqual(os.getcwd(), before)

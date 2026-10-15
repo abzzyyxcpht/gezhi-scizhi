@@ -1,4 +1,4 @@
-// 事件游标恢复（Ink agent-events-ui 的 OpenTUI 移植）：失败页同游标重试、
+// 事件游标恢复：失败页同游标重试、
 // rewind reset 游标失效重取、流式/重试不清草稿、本地零 journal 读。
 // 注：Ink 的「在途旧页不得渲染」由串行提交结构性保证（忙时排队），不再需要令牌守卫。
 import assert from 'node:assert/strict';

@@ -1,4 +1,4 @@
-// 科研创新命令（Ink research-ink 的 OpenTUI 移植）：注册表 6 命令在位、
+// 科研创新命令：注册表 6 命令在位、
 // /goal 生命周期、科研面板模式门禁、/novelty 与世界模型、/reproduce /peer-review 用法路径。
 // 真引擎 round-trip 由 spike/e2e-research.js 覆盖；此处走夹具全桩。
 import assert from 'node:assert/strict';
@@ -70,6 +70,6 @@ export const captureResearchInkFrames = () => upgradeFixture(async t => {
 
 if (path.resolve(process.argv[1] || '') === fileURLToPath(import.meta.url)) {
   const result = await captureResearchInkFrames();
-  console.log(`TUI 科研命令测试通过（OpenTUI 移植）：${result.frames.length} 帧`);
+  console.log(`TUI 科研命令测试通过：${result.frames.length} 帧`);
   process.exit(0);
 }
