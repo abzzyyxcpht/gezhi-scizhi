@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import inspect
+import asyncio
 import unittest
 from unittest import mock
 
@@ -139,7 +140,9 @@ class DesktopHandlerTest(unittest.TestCase):
                     return
                 seen.add(key)
                 try:
-                    fn(event)
+                    result = fn(event)
+                    if inspect.isawaitable(result):
+                        asyncio.run(result)
                 except Exception as exc:  # noqa: BLE001 —— 收集全部失败后统一报告
                     failures.append(f"{label} (L{fn.__code__.co_firstlineno}) "
                                     f"→ {type(exc).__name__}: {exc}")

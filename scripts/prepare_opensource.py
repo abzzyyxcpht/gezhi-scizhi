@@ -19,6 +19,7 @@ TREES = ("src", "tests", "tui/src", "tui/test", "tui/scripts", "workflows", "plu
 ROOT_FILES = ("DESIGN.md", "LICENSE", "NOTICE", "CONTRIBUTING.md", "SECURITY.md", ".gitignore", ".gitattributes", ".env.example", "requirements.txt", "requirements-dev.txt", "requirements-portable.txt", "pytest.ini", "Gezhi.spec", "tui/package.json", "tui/package-lock.json")
 ASSETS = ("gezhi.ico", "gezhi.png", "gezhi.svg", "gezhi-wordmark.png", "research-study.svg", "remote-control.html", "ui-design.json", "ui-workbench.png", "ui-code-conversation.png")
 DOC_FILES = (
+    "docs/agent-reliability-2026-10-15.md",
     "docs/ui-alignment-2026-10-15.md",
     "docs/OPEN_SOURCE_README.md", "docs/agent-release-2026-09-22.md",
     "docs/release-verification-2026-09-22.json", "docs/release-notes-0.5.0.md",

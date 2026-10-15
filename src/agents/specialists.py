@@ -8,6 +8,7 @@ from __future__ import annotations
 import copy
 import re
 import uuid
+from concurrent.futures import CancelledError
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +18,7 @@ from .fixtures import demo_works
 from .specs import ROSTER, get_spec, list_agents
 from ..citation import gbt7714
 from ..config import ROOT_DIR
-from ..orchestrator.engine import TaskContext
+from ..orchestrator.engine import PauseRequested, TaskContext
 
 _PATH_RE = re.compile(r"(?:[A-Za-z]:)?[^\s\"']+\.(?:csv|xlsx|xls|txt)", re.I)
 
@@ -131,7 +132,6 @@ def _stamp_artifact(workspace: dict[str, Any], spec, instruction: str) -> None:
 def _run_literature(request: str, workspace: dict[str, Any],
                     offline: bool, extra: dict[str, Any] | None = None, *, context_scope=None) -> dict[str, Any]:
     topic = _topic_of(request, workspace) or "large language model agents"
-    workspace["topic"] = topic
     def sample_pool() -> dict[str, Any]:
         works = [{**work, "demo": True, "source_type": "synthetic_demo",
                   "title": "【离线演示样例】" + str(work.get("title") or "")}
@@ -141,22 +141,54 @@ def _run_literature(request: str, workspace: dict[str, Any],
                             "合成演示样例，仅验证流程；不可作为真实科研证据。")
         result["source"] = "synthetic_demo"
         return result
+    search_error = ""
     if offline:
         scored = sample_pool()
     else:
         ctx = _ctx(topic, context_scope=context_scope)
         try:
             scored = literature.literature_recursive_filter(ctx, {"threshold": 0.18})
-        except Exception as exc:  # noqa: BLE001 —— 在线失败回落离线样例
-            scored = sample_pool()
-            scored["degraded"] = True
-            scored["error"] = str(exc)
-    pool = list(scored.get("pool") or [])
+        except (PermissionError, CancelledError, PauseRequested):
+            raise
+        except Exception as exc:  # noqa: BLE001 —— 在线失败保留已有工作区
+            metadata = exc.search_metadata if isinstance(exc, literature.LiteratureSearchError) else {}
+            search_error = f"在线文献检索失败：{exc}"
+            scored = {"search_metadata": metadata, "degraded": True,
+                      "warnings": list(metadata.get("warnings") or [])}
     # 本地全文材料（用户显式提供的 PDF/文本）：并入池尾，带 full_text 供全文抽取
-    local_entries, local_skipped = local_docs.load_entries((extra or {}).get("local_docs"))
+    local_entries, local_skipped = ([], [])
+    if "local_docs" in (extra or {}):
+        local_entries, local_skipped = local_docs.load_entries((extra or {})["local_docs"])
+    if search_error:
+        retained = list(workspace.get("pool") or [])
+        merged = local_docs.merge_into_pool(retained, local_entries)
+        added = len(merged) - len(retained)
+        partial = bool(local_entries)
+        summary = (f"在线检索失败；本地材料新增 {added} 篇，保留原文献 {len(retained)} 篇。"
+                   if partial else "在线检索失败，无可用本地材料，文献池未更新。")
+        warnings = [*scored["warnings"], search_error]
+        notice = "\n".join([summary, *warnings])
+        if partial:
+            workspace["topic"] = topic
+            workspace["pool"] = merged
+            workspace["literature_notice"] = notice
+        result = {"ok": partial, "agent": "literature", "partial": partial,
+                  "summary": summary, "pool_count": added,
+                  "total_pool_count": len(merged), "retained_pool_count": len(retained),
+                  "retrieved_count": 0, "search_status": "failed", "search_error": search_error,
+                  "search_metadata": scored["search_metadata"], "degraded": True,
+                  "warnings": warnings, "notice": notice,
+                  "local_docs": {"loaded": len(local_entries), "ingested": added, "skipped": local_skipped}}
+        if partial:
+            result["source_type"] = "local_documents"
+        else:
+            result["error"] = search_error
+        return result
+    pool = list(scored.get("pool") or [])
+    retrieved_count = len(pool)
     if local_entries or local_skipped:
         pool = local_docs.merge_into_pool(pool, local_entries)
-        scored["local_docs"] = {"ingested": len(local_entries), "skipped": local_skipped}
+    workspace["topic"] = topic
     workspace["pool"] = pool
     workspace["lit_rounds"] = scored.get("rounds") or []
     workspace["rounds"] = workspace["lit_rounds"]
@@ -166,6 +198,10 @@ def _run_literature(request: str, workspace: dict[str, Any],
             "pool_count": len(pool), "rounds": workspace["lit_rounds"],
             "threshold": scored.get("threshold"),
             "degraded": bool(scored.get("degraded")),
+            "search_metadata": workspace["search_metadata"],
+            "warnings": list(scored.get("warnings") or []),
+            "local_docs": {"loaded": len(local_entries), "ingested": len(pool) - retrieved_count,
+                           "skipped": local_skipped},
             "source_type": "synthetic_demo" if scored.get("source") == "synthetic_demo" else "retrieved_metadata",
             "notice": scored.get("notice", "")}
 
@@ -199,9 +235,13 @@ def _run_synthesis(request: str, workspace: dict[str, Any], offline: bool = Fals
     workspace["sections"] = payload.get("sections") or []
     workspace["outline_md"] = payload.get("outline_md") or ""
     workspace["verification_scope"] = payload.get("verification_scope", "not_recorded")
+    workspace["gap_refill"] = payload.get("gap_refill") or {}
     return {"ok": True, "agent": "synthesis",
             "summary": f"综述框架 {len(workspace['sections'])} 节",
             "section_count": len(workspace["sections"]),
+            "gap_refill": workspace["gap_refill"],
+            "degraded": bool(workspace["gap_refill"].get("degraded")),
+            "warnings": list(workspace["gap_refill"].get("warnings") or []),
             "outline_chars": len(workspace["outline_md"])}
 
 

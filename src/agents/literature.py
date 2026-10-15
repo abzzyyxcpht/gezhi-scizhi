@@ -8,13 +8,22 @@
 """
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import CancelledError, ThreadPoolExecutor
 from typing import Any
 
 from .. import config, embedding, llm, prompts, ranking, research_context
 from .. import settings as app_settings
 from ..connectors import openalex
-from ..orchestrator.engine import TaskContext, action
+from ..orchestrator.engine import PauseRequested, TaskContext, action
+from ..research_analysis import normalize_doi
+
+
+class LiteratureSearchError(RuntimeError):
+    """已启用检索源全部失败，携带本次调用的数据源诊断。"""
+
+    def __init__(self, message: str, search_metadata: dict[str, Any]):
+        super().__init__(message)
+        self.search_metadata = search_metadata
 
 
 def merge_sources(*batches: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -23,7 +32,7 @@ def merge_sources(*batches: list[dict[str, Any]]) -> list[dict[str, Any]]:
     seen: set[str] = set()
     for batch in batches:
         for w in batch:
-            key = (w.get("doi") or w.get("id") or "").lower()
+            key = normalize_doi(w.get("doi")) or str(w.get("doi") or w.get("id") or "").strip().casefold()
             if not key or key in seen:
                 continue
             seen.add(key)
@@ -33,10 +42,12 @@ def merge_sources(*batches: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _dual_source_search(query: str, per_page: int,
                         year_from: int | None, year_to: int | None,
-                        node: str) -> tuple[list[dict[str, Any]], dict[str, int]]:
+                        node: str, *, diagnostics: dict[str, Any] | None = None
+                        ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     """首轮双源并行召回：OpenAlex 与 CrossRef 并发请求，并集去重。
 
-    单源失败自动降级为另一源；返回各源计数供事件流展示。
+    单源失败保留另一源结果；全部启用源失败时抛异常。空命中仍视为成功。
+    diagnostics 可接收各源状态与降级警告，计数返回协议保持不变。
     """
     use_crossref = bool(getattr(config, "LIT_ENABLE_CROSSREF", True)
                         and app_settings.load().get("enable_crossref", True))
@@ -46,21 +57,39 @@ def _dual_source_search(query: str, per_page: int,
                                year_from=year_from, year_to=year_to, node=node)
 
     def _cr() -> list[dict[str, Any]]:
-        if not use_crossref:
-            return []
         from ..connectors import crossref
         return crossref.search(query, per_page=per_page,
                                year_from=year_from, year_to=year_to, node=node)
 
+    batches: dict[str, list[dict[str, Any]]] = {"openalex": [], "crossref": []}
+    statuses = {"openalex": "pending", "crossref": "pending" if use_crossref else "disabled"}
+    failures: dict[str, Exception] = {}
     with ThreadPoolExecutor(max_workers=2) as ex:
-        f_oa, f_cr = ex.submit(_oa), ex.submit(_cr)
-        oa = f_oa.result()
-        try:
-            cr = f_cr.result()
-        except Exception:  # noqa: BLE001 —— CrossRef 失败不影响主流程
-            cr = []
-    counts = {"openalex": len(oa), "crossref": len(cr)}
-    return merge_sources(oa, cr), counts
+        futures = {"openalex": ex.submit(_oa)}
+        if use_crossref:
+            futures["crossref"] = ex.submit(_cr)
+        for source, future in futures.items():
+            try:
+                batches[source] = future.result()
+                statuses[source] = "success"
+            except (PermissionError, CancelledError, PauseRequested):
+                raise
+            except Exception as exc:  # noqa: BLE001 —— 分别记录数据源失败
+                failures[source] = exc
+                statuses[source] = "failed"
+    counts = {source: len(works) for source, works in batches.items()}
+    labels = {"openalex": "OpenAlex", "crossref": "CrossRef"}
+    warnings = [f"{labels[source]} 检索失败，本次结果未包含该源。" for source in failures]
+    metadata = {"source_counts": counts, "source_status": statuses,
+                "degraded": bool(failures), "warnings": warnings}
+    if diagnostics is not None:
+        diagnostics.update(metadata)
+    if not any(status == "success" for status in statuses.values()):
+        names = "、".join(labels[source] for source in failures)
+        raise LiteratureSearchError(
+            f"所有已启用数据源检索失败（{names}），请稍后重试。", metadata
+        ) from next(iter(failures.values()))
+    return merge_sources(batches["openalex"], batches["crossref"]), counts
 
 
 def _tfidf_score(query: str, works: list[dict[str, Any]]) -> list[float]:
@@ -225,8 +254,6 @@ def score_pool(query: str, works: list[dict[str, Any]],
 @action("literature_recursive_filter")
 def literature_recursive_filter(ctx: TaskContext, params: dict[str, Any]) -> dict[str, Any]:
     """递归筛选主流程，产出精准文献池。支持轮次级断点：暂停后从下一轮继续。"""
-    from ..orchestrator.engine import PauseRequested
-
     topic = ctx.params.get("topic", "")
     keywords = ctx.params.get("keywords", "")
     search_topic = ctx.params.get("search_query") or topic
@@ -260,6 +287,8 @@ def literature_recursive_filter(ctx: TaskContext, params: dict[str, Any]) -> dic
     pool: dict[str, dict[str, Any]] = state.get("pool", {})
     seeds: list[str] = state.get("seeds", [])
     rounds: list[dict[str, Any]] = state.get("rounds", [])
+    search_metadata: dict[str, Any] = state.get("search_metadata", {})
+    warnings: list[str] = list(state.get("warnings", []))
     start_round = state.get("next_round", 1)
     rank_info: dict[str, Any] = {"tier": "lexical"}
     if start_round > 1:
@@ -271,6 +300,7 @@ def literature_recursive_filter(ctx: TaskContext, params: dict[str, Any]) -> dic
             # 轮次间隙暂停：落盘中间态后挂起
             ctx.artifacts["_lit_state"] = {
                 "pool": pool, "seeds": seeds, "rounds": rounds, "next_round": rnd,
+                "search_metadata": search_metadata, "warnings": warnings,
             }
             ctx.emit("node", node="lit_filter",
                      message=f"第 {rnd} 轮前暂停，已完成 {len(rounds)} 轮")
@@ -278,7 +308,11 @@ def literature_recursive_filter(ctx: TaskContext, params: dict[str, Any]) -> dic
         # 1) 获取候选：首轮双源并行检索，后续轮滚雪球
         if rnd == 1:
             candidates, src_counts = _dual_source_search(
-                query, config.LIT_PER_PAGE, year_from, year_to, node="search")
+                query, config.LIT_PER_PAGE, year_from, year_to, node="search",
+                diagnostics=search_metadata)
+            for warning in search_metadata.get("warnings", []):
+                warnings.append(warning)
+                ctx.emit("node", node="lit_filter", message=warning)
             extra = (f"（OpenAlex {src_counts['openalex']}"
                      f" + CrossRef {src_counts['crossref']}，双源并行去重）"
                      if src_counts["crossref"]
@@ -286,15 +320,31 @@ def literature_recursive_filter(ctx: TaskContext, params: dict[str, Any]) -> dic
             ctx.emit("node", node="lit_filter",
                      message=f"第 {rnd} 轮：检索到 {len(candidates)} 篇候选{extra}")
         else:
+            if search_metadata.get("source_status", {}).get("openalex") == "failed":
+                ctx.emit("node", node="lit_filter", message="OpenAlex 不可用，跳过引用扩展，保留已检索文献。")
+                break
+            seeds = [sid for sid in seeds if pool.get(sid, {}).get("source") != "crossref"]
+            if not seeds:
+                ctx.emit("node", node="lit_filter", message="无可用 OpenAlex 引用种子，保留已检索文献。")
+                break
             refs: list[str] = []
             for sid in seeds[:config.LIT_SNOWBALL_TOPK]:
                 w = pool.get(sid)
                 if w:
                     refs.extend(w.get("referenced_works", [])[:5])
-            # 引用方向与被引方向并发扩展（滚雪球提速关键）
-            expanded = openalex.fetch_many(refs[:50], node="expand")
-            expanded.extend(openalex.cited_by_batch(seeds[:5], per_page=10, node="expand"))
-            candidates = [w for w in expanded if w["id"] not in pool]
+            try:
+                expanded = openalex.fetch_many(refs[:50], node="expand")
+                expanded.extend(openalex.cited_by_batch(seeds[:5], per_page=10, node="expand"))
+            except (PermissionError, CancelledError, PauseRequested):
+                raise
+            except Exception:  # noqa: BLE001 —— 扩展失败保留此前结果
+                warning = f"OpenAlex 引用扩展失败，已保留前 {len(rounds)} 轮文献。"
+                warnings.append(warning)
+                search_metadata["expansion_status"] = "failed"
+                ctx.emit("node", node="lit_filter", message=warning)
+                break
+            existing = merge_sources(list(pool.values()))
+            candidates = merge_sources(existing, expanded)[len(existing):]
             ctx.emit("node", node="lit_filter",
                      message=f"第 {rnd} 轮：沿引用网络扩展出 {len(candidates)} 篇新候选")
 
@@ -357,13 +407,19 @@ def literature_recursive_filter(ctx: TaskContext, params: dict[str, Any]) -> dic
             ctx.emit("node", node="lit_filter", message="达到收敛条件，递归结束")
             break
         seeds = [w["id"] for w in
-                 sorted(pool.values(), key=lambda x: -x["score"])[:config.LIT_SNOWBALL_TOPK]]
+                 sorted(pool.values(), key=lambda x: -x["score"])
+                 if w.get("source") != "crossref"][:config.LIT_SNOWBALL_TOPK]
 
     ctx.artifacts.pop("_lit_state", None)  # 跑完即清除中间态
+    search_metadata.update(degraded=bool(warnings), warnings=warnings)
     result = {
         "pool": sorted(pool.values(), key=lambda x: -x["score"]),
         "rounds": rounds,
         "summary": f"递归 {len(rounds)} 轮，文献池共 {len(pool)} 篇",
+        "search_metadata": search_metadata,
+        "degraded": bool(warnings),
+        "warnings": warnings,
+        "notice": "\n".join(warnings),
         "funnel": {
             "recalled": sum(r["candidates"] for r in rounds),
             "kept_by_score": sum(r.get("funnel", {}).get("kept_by_score", 0) for r in rounds),

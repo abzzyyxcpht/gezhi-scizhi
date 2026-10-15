@@ -62,9 +62,6 @@ def _get(path: str, params: dict[str, Any], node: str) -> dict[str, Any]:
     for attempt in range(_MAX_RETRY):
         try:
             resp = _client.get(f"{BASE}{path}", params=params)
-            if resp.status_code == 429:  # 限流：指数退避
-                time.sleep(2 ** attempt)
-                continue
             resp.raise_for_status()
             data = resp.json()
             _cache_put(key, data)
@@ -72,12 +69,12 @@ def _get(path: str, params: dict[str, Any], node: str) -> dict[str, Any]:
                      f"http={resp.status_code}",
                      int((time.perf_counter() - t0) * 1000), "success")
             return data
-        except Exception as e:  # noqa: BLE001 —— 网络异常统一重试
+        except (httpx.HTTPError, ValueError) as e:
             last_err = e
             time.sleep(2 ** attempt)
     log_tool(node, "crossref", str(params)[:120], f"error={last_err}",
              int((time.perf_counter() - t0) * 1000), "failed")
-    raise RuntimeError(f"CrossRef 请求失败: {last_err}")
+    raise RuntimeError(f"CrossRef 请求失败: {last_err}") from last_err
 
 
 def fetch_by_doi(doi: str, node: str = "citation") -> dict[str, Any] | None:
@@ -110,8 +107,11 @@ def _normalize(w: dict[str, Any]) -> dict[str, Any]:
     year = issued[0][0] if issued and issued[0] else None
     title = (w.get("title") or [""])[0] or (w.get("original-title") or [""])[0]
     venue = (w.get("container-title") or [""])[0] or ""
+    identity = (f"https://doi.org/{doi}" if doi else
+                "crossref:" + (w.get("URL") or hashlib.sha256(
+                    json.dumps(w, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()))
     return {
-        "id": f"https://doi.org/{doi}" if doi else f"crossref:{w.get('URL', hash(w))}",
+        "id": identity,
         "title": title,
         "authors": authors,
         "year": year,

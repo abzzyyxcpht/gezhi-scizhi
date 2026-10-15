@@ -1428,10 +1428,13 @@ def main(page: ft.Page) -> None:
         elif tool_name == "shell.run":
             command = str(arguments.get("command") or "")
 
-            def copy_command(e) -> None:
-                clip = getattr(page, "clipboard", None)
-                if clip is not None and hasattr(page, "run_task"):
-                    page.run_task(clip.set, command)
+            async def copy_command(e) -> None:
+                try:
+                    await page.clipboard.set(command)
+                except Exception:
+                    page.show_dialog(ft.SnackBar(
+                        ft.Text("复制失败，请重试或选中命令复制"), bgcolor=palette.DANGER))
+                    return
                 page.show_dialog(ft.SnackBar(
                     ft.Text("命令已复制到剪贴板"), bgcolor=palette.SUCCESS))
 

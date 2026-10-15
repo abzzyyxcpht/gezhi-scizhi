@@ -27,6 +27,13 @@ class CodePreview(ft.Container):
         self._preview_options, self._preview_dark = options, dark
         self.rows: list[ft.Row] = []
         self.code_lines: list[ft.Text] = []
+        self._copy_pending = False
+        self._copy_state = 'ready'
+        self._displayed_source = self.source
+        self.language_label = ft.Text(max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True)
+        self.copy_button = ft.TextButton('复制代码', icon=ft.Icons.COPY_OUTLINED,
+                                        height=32, on_click=self._copy)
+        self.header = ft.Row([self.language_label, self.copy_button], spacing=8)
         self.refresh(options, dark)
 
     @property
@@ -37,6 +44,39 @@ class CodePreview(ft.Container):
     def value(self, text):
         self.source = str(text)
         self.refresh()
+
+    def _copy_feedback(self, page=None):
+        labels = {'ready': '复制代码', 'copying': '复制中…', 'copied': '已复制',
+                  'stale': '重新复制', 'failed': '重试复制'}
+        self.copy_button.content = labels[self._copy_state]
+        self.copy_button.icon = ft.Icons.CHECK if self._copy_state == 'copied' else ft.Icons.COPY_OUTLINED
+        self.copy_button.disabled = self._copy_pending or not self.source
+        self.copy_button.tooltip = (
+            '剪贴板不可用，请重试或选中文本复制' if self._copy_state == 'failed' else
+            '已复制点击时的代码；内容已更新，可以重新复制' if self._copy_state == 'stale' else
+            '复制原始代码，保留缩进与换行，不包含行号')
+        if page is not None:
+            try:
+                page.update()
+            except RuntimeError:
+                # A clipboard acknowledgement may arrive after the page closes.
+                pass
+
+    async def _copy(self, event):
+        if self._copy_pending or not self.source:
+            return
+        page = getattr(event, 'page', None) or self.page
+        source = self.source
+        self._copy_pending, self._copy_state = True, 'copying'
+        self._copy_feedback(page)
+        try:
+            await page.clipboard.set(source)
+            self._copy_state = 'copied' if self.source == source else 'stale'
+        except Exception:
+            self._copy_state = 'failed'
+        finally:
+            self._copy_pending = False
+            self._copy_feedback(page)
 
     def refresh(self, options: dict | None = None, dark: bool | None = None):
         raw = options if options is not None else self._preview_options
@@ -49,6 +89,20 @@ class CodePreview(ft.Container):
         size = values['code_font_size']
         wrap = values['code_wrap_long_lines']
         family = theme.code_font_family(values.get('appearance_code_font'))
+        names = {'python': 'Python', 'py': 'Python', 'js': 'JavaScript',
+                 'javascript': 'JavaScript', 'diff': 'Diff', 'text': '纯文本'}
+        self.language_label.value = names.get(self.language, self.language[:32] or '代码')
+        self.language_label.color = comment
+        self.language_label.size = theme.ui_size('sm')
+        self.language_label.font_family = theme.body_font_family()
+        self.copy_button.style = ft.ButtonStyle(color=fg, icon_color=fg, icon_size=14,
+            text_style=ft.TextStyle(size=theme.ui_size('sm'), font_family=theme.body_font_family()),
+            padding=ft.Padding(6, 4, 6, 4), shape=ft.RoundedRectangleBorder(radius=theme.radius()))
+        if self._displayed_source != self.source:
+            self._displayed_source = self.source
+            if not self._copy_pending:
+                self._copy_state = 'ready'
+        self._copy_feedback()
         signature = (self.source, self.language, selected, bool(dark), size, wrap,
                      family, values['code_show_line_numbers'])
         if getattr(self, '_render_signature', None) == signature:
@@ -89,5 +143,6 @@ class CodePreview(ft.Container):
             self.rows.append(ft.Row([label, code], spacing=12,
                                    vertical_alignment=ft.CrossAxisAlignment.START))
         column = ft.Column(self.rows, spacing=2, tight=True)
-        self.content = column if wrap else ft.Row([column], scroll=ft.ScrollMode.AUTO)
+        self.code_body = column if wrap else ft.Row([column], scroll=ft.ScrollMode.AUTO)
+        self.content = ft.Column([self.header, self.code_body], spacing=8, tight=True)
         self._render_signature = signature

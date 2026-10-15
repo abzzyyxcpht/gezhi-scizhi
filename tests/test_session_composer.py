@@ -1,5 +1,6 @@
 """Native session actions against real project/session storage, without a model."""
 import asyncio
+import copy
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +10,7 @@ from unittest.mock import Mock, patch
 import flet as ft
 from src import config, settings, project_workspace, session_workspace
 from src.ui import session_composer as ui
+from src.ui import markdown_view
 from src.ui.code_preview import CodePreview
 from src.ui.settings_center import apply_appearance
 
@@ -66,6 +68,129 @@ class SessionComposerTests(unittest.TestCase):
         self.assertEqual('result = 43\n', code.source)
         self.assertEqual(16, code.code_lines[0].size)
         self.assertTrue(code.rows[0].controls[0].visible)
+
+    def test_delta_batch_parses_and_refreshes_active_code_once(self):
+        self.ui._render_events([
+            self.event('user_message', text='逐行检查'),
+            self.event('assistant_delta', step=1, delta='```python\n'),
+        ])
+        bubble = self.ui.stream_bubbles[(1, 1)]
+        code = next(node for node in bubble.controls if isinstance(node, CodePreview))
+        chunks = [f'value_{index} = {index}\n' for index in range(160)] + ['```']
+        events = [self.event('assistant_delta', step=1, delta=chunk) for chunk in chunks]
+        original = copy.deepcopy(events)
+        with patch.object(markdown_view, '_segments', wraps=markdown_view._segments) as parse, \
+                patch.object(code, 'refresh', wraps=code.refresh) as refresh:
+            self.assertTrue(self.ui._render_events(events))
+        self.assertEqual(1, parse.call_count)
+        parse.assert_called_once_with('```python\n' + ''.join(chunks))
+        refresh.assert_called_once()
+        self.assertIs(bubble, self.ui.stream_bubbles[(1, 1)])
+        self.assertIs(code, bubble.controls[0])
+        self.assertEqual(''.join(chunks[:-1]), code.source)
+        self.assertEqual(original, events, 'Rendering must not combine stored events in place')
+        self.assertEqual((1, 1), self.ui._open_step)
+
+    def test_new_delta_batch_is_readable_without_waiting_for_final_message(self):
+        with patch.object(markdown_view, '_segments', wraps=markdown_view._segments) as parse:
+            self.ui._render_events([
+                self.event('assistant_delta', step=1, delta='```py'),
+                self.event('assistant_delta', step=1, delta='thon\n'),
+                self.event('assistant_delta', step=1, delta='print(1)\n'),
+            ])
+        parse.assert_called_once_with('```python\nprint(1)\n')
+        bubble = self.ui.stream_bubbles[(0, 1)]
+        code = bubble.controls[0]
+        self.assertIsInstance(code, CodePreview)
+        self.assertEqual('print(1)\n', code.source)
+        self.ui._render_events([
+            self.event('assistant_delta', step=1, delta='print(2)\n'),
+            self.event('assistant_delta', step=1, delta='```'),
+        ])
+        self.assertIs(bubble, self.ui.stream_bubbles[(0, 1)])
+        self.assertIs(code, bubble.controls[0])
+        self.assertEqual('print(1)\nprint(2)\n', code.source)
+        self.assertEqual(1, len(self.ui.transcript.controls))
+
+    def test_delta_runs_preserve_tool_step_and_turn_boundaries(self):
+        event = self.event
+        with patch.object(markdown_view, '_segments', wraps=markdown_view._segments) as parse:
+            self.ui._render_events([
+                event('assistant_delta', step=1, delta='A'),
+                event('assistant_delta', step=1, delta='B'),
+                event('tool_call', id='one', name='shell.run'),
+                event('assistant_delta', step=1, delta='C'),
+                event('assistant_delta', step=1, delta='D'),
+                event('tool_result', id='one', result={'ok': True, 'exit_code': 0}),
+                event('assistant_delta', step=2, delta='X'),
+                event('assistant_delta', step=2, delta='Y'),
+                event('assistant_delta', step=1, delta='E'),
+                event('assistant_delta', step=1, delta='F'),
+                event('user_message', text='下一问'),
+                event('assistant_delta', step=1, delta='G'),
+                event('assistant_delta', step=1, delta='H'),
+            ])
+        self.assertEqual(['AB', 'ABCD', 'XY', 'ABCDEF', '下一问', 'GH'],
+                         [call.args[0] for call in parse.call_args_list])
+        self.assertEqual('ABCDEF', self.ui.stream_bubbles[(0, 1)].value)
+        self.assertEqual('XY', self.ui.stream_bubbles[(0, 2)].value)
+        self.assertEqual('GH', self.ui.stream_bubbles[(1, 1)].value)
+        self.assertEqual(5, len(self.ui.transcript.controls))
+        self.assertIs(self.ui.tool_rows[(0, 'one')][0], self.ui.transcript.controls[1])
+        self.assertTrue(self.ui.transcript.controls[1].title.value.startswith('✔'))
+
+    def test_final_message_steering_and_status_events_flush_delta_runs(self):
+        event = self.event
+        with patch.object(markdown_view, '_segments', wraps=markdown_view._segments) as parse:
+            self.ui._render_events([
+                event('assistant_delta', step=1, delta='A'),
+                event('assistant_delta', step=1, delta='B'),
+                event('permission_requested', tool='file.write'),
+                event('assistant_delta', step=1, delta='C'),
+                event('assistant_delta', step=1, delta='D'),
+                event('assistant_message', content='完整回复'),
+                event('assistant_delta', step=1, delta='E'),
+                event('assistant_delta', step=1, delta='F'),
+                event('steer_applied', text='补充条件'),
+                event('assistant_message', content='补充回复'),
+            ])
+        self.assertEqual(['AB', 'ABCD', '完整回复', '完整回复EF', '补充本轮：补充条件', '补充回复'],
+                         [call.args[0] for call in parse.call_args_list])
+        self.assertEqual(['完整回复EF', '补充本轮：补充条件', '补充回复'],
+                         [control.content.controls[-1].value for control in self.ui.transcript.controls])
+        self.assertIsNone(self.ui._open_step)
+
+    def test_delta_batch_keeps_raw_page_cursor_and_operation_events(self):
+        self.ui.new()
+        chunks = [self.event('assistant_delta', step=1, delta=str(index)) for index in range(20)]
+        final = self.event('assistant_message', step=1, content='确认后的完整内容')
+        self.ui.event_page_provider = Mock(side_effect=[
+            {'events': [self.event('user_message', text='问题')], 'cursor': 'start'},
+            {'events': chunks, 'cursor': 'stream', 'has_more': True},
+            {'events': [final], 'cursor': 'final'},
+        ])
+        self.ui.events_changed = Mock()
+        self.ui.refresh()
+        self.ui.events_changed.reset_mock()
+        with patch.object(self.ui.page, 'update') as update, \
+                patch.object(markdown_view, '_segments', wraps=markdown_view._segments) as parse:
+            self.ui.consume_events()
+        parse.assert_called_once_with(''.join(str(index) for index in range(20)))
+        update.assert_called_once()
+        self.ui.events_changed.assert_not_called()
+        self.assertEqual(21, self.ui.event_cursor)
+        self.assertEqual('stream', self.ui._page_cursor)
+        self.assertTrue(self.ui.has_more_events)
+        bubble = self.ui.stream_bubbles[(1, 1)]
+        self.ui.consume_events()
+        self.assertIs(bubble, self.ui.stream_bubbles[(1, 1)])
+        self.assertEqual(final['payload']['content'], bubble.value)
+        self.assertEqual(22, self.ui.event_cursor)
+        self.assertEqual('final', self.ui._page_cursor)
+        self.assertEqual(['user_message', 'assistant_message'],
+                         [event['type'] for event in self.ui.recent_events])
+        self.assertIs(final, self.ui.recent_events[-1])
+        self.assertIsNone(self.ui._open_step)
 
     def test_paged_refresh_uses_metadata_and_only_the_tail_page(self):
         self.ui.new()
@@ -142,6 +267,90 @@ class SessionComposerTests(unittest.TestCase):
         self.ui.event_page_provider = late_page
         self.ui.consume_events()
         self.assertEqual(['新视图'], [c.content.controls[-1].value for c in self.ui.transcript.controls])
+
+    def test_switched_session_discards_late_stream_page(self):
+        self.ui.new()
+        original_sid = self.sid
+        self.ui.new()
+        current_sid = self.sid
+        self.sid = original_sid
+        self.ui.event_page_provider = Mock(return_value={
+            'events': [self.event('user_message', text='旧会话')], 'cursor': 'old'})
+        self.ui.refresh()
+
+        def late_page(*args, **kwargs):
+            self.sid = current_sid
+            self.ui.event_page_provider = Mock(return_value={
+                'events': [self.event('user_message', text='当前会话')], 'cursor': 'current'})
+            self.ui.refresh()
+            return {'events': [self.event('assistant_delta', step=1, delta='旧流片段')],
+                    'cursor': 'late', 'has_more': True}
+
+        self.ui.event_page_provider = late_page
+        self.ui.consume_events()
+        self.assertEqual(['当前会话'], [c.content.controls[-1].value for c in self.ui.transcript.controls])
+        self.assertEqual(current_sid, self.ui._rendered_sid)
+        self.assertEqual('current', self.ui._page_cursor)
+        self.assertEqual(1, self.ui.event_cursor)
+        self.assertEqual({}, self.ui.stream_bubbles)
+        self.assertFalse(self.ui.has_more_events)
+
+    def _assert_late_page_error_keeps_new_view(self, action, *, switch_session):
+        self.ui.new()
+        original_sid = self.sid
+        self.ui.new()
+        fresh_sid = self.sid if switch_session else original_sid
+        self.sid = original_sid
+        if action == 'consume_events':
+            self.ui.event_page_provider = Mock(return_value={
+                'events': [self.event('user_message', text='旧视图')], 'cursor': 'old'})
+            self.ui.refresh()
+        fresh_events = [self.event('user_message', text='新视图')]
+
+        def late_failure(*args, **kwargs):
+            self.sid = fresh_sid
+            self.ui.event_page_provider = Mock(return_value={
+                'events': fresh_events, 'cursor': 'fresh', 'has_more': True})
+            self.ui.refresh()
+            raise OSError('旧请求读取失败')
+
+        self.ui.event_page_provider = late_failure
+        with patch.object(self.ui.page, 'update') as update:
+            getattr(self.ui, action)()
+        self.assertTrue(self.ui.has_more_events)
+        self.assertEqual('fresh', self.ui._page_cursor)
+        self.assertEqual(fresh_sid, self.ui._rendered_sid)
+        self.assertEqual(1, self.ui.event_cursor)
+        self.assertEqual(fresh_events, self.ui.recent_events)
+        self.assertEqual(['新视图'], [c.content.controls[-1].value for c in self.ui.transcript.controls])
+        update.assert_called_once()
+
+    def test_late_poll_error_after_session_switch_keeps_new_backlog(self):
+        self._assert_late_page_error_keeps_new_view('consume_events', switch_session=True)
+
+    def test_late_poll_error_after_same_session_refresh_keeps_new_backlog(self):
+        self._assert_late_page_error_keeps_new_view('consume_events', switch_session=False)
+
+    def test_late_refresh_error_after_session_switch_keeps_new_backlog(self):
+        self._assert_late_page_error_keeps_new_view('refresh', switch_session=True)
+
+    def test_late_refresh_error_after_same_session_refresh_keeps_new_backlog(self):
+        self._assert_late_page_error_keeps_new_view('refresh', switch_session=False)
+
+    def test_current_page_error_stops_catchup_and_keeps_last_good_transcript(self):
+        self.ui.new()
+        for action in ('consume_events', 'refresh'):
+            with self.subTest(action=action):
+                self.ui.event_page_provider = Mock(return_value={
+                    'events': [self.event('user_message', text='保留内容')],
+                    'cursor': 'current', 'has_more': True})
+                self.ui.refresh()
+                original = self.ui.transcript.controls[:]
+                self.ui.event_page_provider = Mock(side_effect=OSError('当前请求失败'))
+                getattr(self.ui, action)()
+                self.assertFalse(self.ui.has_more_events)
+                self.assertEqual('current', self.ui._page_cursor)
+                self.assertEqual(original, self.ui.transcript.controls)
 
     def test_failed_metadata_for_another_session_clears_previous_operation_log(self):
         self.ui.new()

@@ -97,7 +97,7 @@ def test_appearance_changes_reach_code_and_new_streamed_content():
     assert code.code_lines[0].size == 17
     assert code.code_lines[0].no_wrap
     assert not code.rows[0].controls[0].visible
-    assert code.content.scroll == ft.ScrollMode.AUTO
+    assert code.code_body.scroll == ft.ScrollMode.AUTO
     assert before != [span.style.color for span in code.code_lines[0].spans]
     assert view.controls[0].md_style_sheet.p_text_style.size == 20
     view.value = 'Intro\n\n```python\nreturn 43\n```\n'

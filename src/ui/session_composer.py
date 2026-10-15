@@ -250,11 +250,14 @@ class SessionComposer:
     def _render_events(self, events: list) -> bool:
         """把一段事件追加进 transcript；返回是否有可见变化。
 
-        assistant_delta 按 step 拼接到对应气泡的 Markdown 上，
+        同一批次中相邻、同 step 的 assistant_delta 合并后更新一次 Markdown，
         随后的 assistant_message 用完整 content 覆盖该步增量区。
         """
         changed = False
-        for e in events:
+        index = 0
+        while index < len(events):
+            e = events[index]
+            index += 1
             typ = e.get("type", "")
             p = e.get("payload") or {}
             if typ == "user_message":
@@ -265,14 +268,24 @@ class SessionComposer:
                 changed = True
             elif typ == "assistant_delta":
                 step = (self._turn_index, p.get("step"))
+                chunks = [str(p.get('delta') or '')]
+                while index < len(events):
+                    following = events[index]
+                    payload = following.get('payload') or {}
+                    if following.get('type') != 'assistant_delta' or payload.get('step') != step[1]:
+                        break
+                    chunks.append(str(payload.get('delta') or ''))
+                    index += 1
+                delta = ''.join(chunks)
                 md = self.stream_bubbles.get(step)
                 if md is None:
-                    md = MarkdownView('', selectable=True, extension_set=_MD)
+                    md = MarkdownView(delta, selectable=True, extension_set=_MD)
                     self.stream_bubbles[step] = md
                     shell = self._assistant_shell(md)
                     self._step_shells[step] = shell
                     self.transcript.controls.append(shell)
-                md.value = (md.value or '') + str(p.get('delta') or '')
+                else:
+                    md.value = (md.value or '') + delta
                 self._open_step = step
                 changed = True
             elif typ == 'steer_applied':
@@ -337,6 +350,8 @@ class SessionComposer:
                 result = self.event_page_provider(sid, cursor=self._page_cursor,
                                                   limit=EVENT_PAGE_LIMIT, tail=True)
             except Exception:  # noqa: BLE001 — retain the last good view on transient I/O errors
+                if sid != self.selected() or epoch != self._event_epoch:
+                    return
                 self.has_more_events = False
                 return
             if sid != self.selected() or epoch != self._event_epoch:
@@ -439,6 +454,8 @@ class SessionComposer:
                 try:
                     event_page = self.event_page_provider(sid, cursor=None, limit=EVENT_PAGE_LIMIT, tail=True)
                 except Exception:  # noqa: BLE001 — same-session refresh keeps its last good view
+                    if sid != self.selected() or epoch != self._event_epoch:
+                        return
                     self.has_more_events = False
                     if switched:
                         self.page.update()

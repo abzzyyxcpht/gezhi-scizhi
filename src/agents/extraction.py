@@ -8,11 +8,12 @@
 from __future__ import annotations
 
 import re
+from concurrent.futures import CancelledError
 from typing import Any
 
 from .. import aigc, llm, prompts, research_context
 from ..research_analysis import instruction_like, quote_provenance
-from ..orchestrator.engine import TaskContext, action
+from ..orchestrator.engine import PauseRequested, TaskContext, action
 
 _METHOD_HINT = ("we propose", "we present", "we introduce", "method", "approach",
                 "framework", "model", "algorithm", "we design")
@@ -260,12 +261,24 @@ def _gap_refill(ctx: TaskContext, params: dict[str, Any], topic: str,
     from .. import config, evidence
     from . import literature
 
-    def _skip(reason: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-        return {"triggered": False, "reason": reason}, sections
+    search_metadata: dict[str, Any] = {}
+
+    def _diagnostics() -> dict[str, Any]:
+        return {"search_metadata": search_metadata,
+                "degraded": bool(search_metadata.get("degraded")),
+                "warnings": list(search_metadata.get("warnings") or [])}
+
+    def _skip(reason: str, status: str = "skipped") -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        result = {"triggered": False, "reason": reason, "status": status, **_diagnostics()}
+        if status != "skipped":
+            result["_gap_refill_done"] = True
+        return result, sections
 
     prev = ctx.artifacts.get("review_frame") or {}
     if prev.get("_gap_refill_done") or (prev.get("gap_refill") or {}).get("_gap_refill_done"):
-        return _skip("本轮已补检过（断点续跑/重放不二次触发）")
+        previous = prev.get("gap_refill") or {}
+        return {**previous, "triggered": False, "replayed": True,
+                "reason": previous.get("reason") or "本轮已补检过（断点续跑/重放不二次触发）"}, sections
     if ctx.params.get("offline"):
         return _skip("离线模式不触发补检")
     if params.get("no_refill"):
@@ -284,22 +297,30 @@ def _gap_refill(ctx: TaskContext, params: dict[str, Any], topic: str,
         candidates, _src_counts = literature._dual_source_search(
             query, max(1, config.LIT_PER_PAGE // 2),
             ctx.params.get("year_from"), ctx.params.get("year_to"),
-            node="review_frame")
+            node="review_frame", diagnostics=search_metadata)
+    except (PermissionError, CancelledError, PauseRequested):
+        raise
     except Exception as exc:  # noqa: BLE001 —— 补检失败不阻断主流程
-        return _skip(f"补检检索失败：{exc}")
+        if isinstance(exc, literature.LiteratureSearchError):
+            search_metadata.update(exc.search_metadata)
+        warning = f"补检检索失败：{exc}"
+        search_metadata["degraded"] = True
+        search_metadata.setdefault("warnings", []).append(warning)
+        ctx.emit("node", node="review_frame", message=warning)
+        return _skip(warning, "failed")
+    for warning in search_metadata.get("warnings", []):
+        ctx.emit("node", node="review_frame", message=warning)
     scored = literature.score_pool(query, candidates, tau, context_scope=ctx.params.get("research_context"))
     pool_new = list(scored.get("pool") or [])
     if not pool_new:
-        return _skip("补检无结果")
+        return _skip("补检无结果", "empty")
 
     lit = ctx.artifacts.setdefault("lit_filter", {})
     old_pool = list(lit.get("pool") or [])
-    seen = {(w.get("doi") or w.get("id") or "").lower() for w in old_pool}
-    added = [w for w in pool_new
-             if (w.get("doi") or w.get("id") or "").lower() and
-             (w.get("doi") or w.get("id") or "").lower() not in seen]
+    existing = literature.merge_sources(old_pool)
+    added = literature.merge_sources(existing, pool_new)[len(existing):]
     if not added:
-        return _skip("补检无结果")
+        return _skip("补检无结果", "empty")
     # 并入文献池（按相关度降序重排），并同步最小抽取记录
     lit["pool"] = sorted(old_pool + added,
                          key=lambda w: -float(w.get("score") or 0))
@@ -321,9 +342,10 @@ def _gap_refill(ctx: TaskContext, params: dict[str, Any], topic: str,
     ctx.emit("node", node="review_frame",
              message=f"框架已按增补文献重写，锚定率 {anchor_before}% → {anchor_after}%")
     refill: dict[str, Any] = {
-        "triggered": True, "sections": missing[:3], "added": len(added),
+        "triggered": True, "status": "completed", "sections": missing[:3], "added": len(added),
         "anchor_rate_before": anchor_before, "anchor_rate_after": anchor_after,
         "_gap_refill_done": True,
+        **_diagnostics(),
     }
     if graph_after["missing_sections"]:
         refill["still_missing"] = graph_after["missing_sections"]

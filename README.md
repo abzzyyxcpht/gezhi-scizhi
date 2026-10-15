@@ -6,11 +6,13 @@ SciZhi 把文献检索、证据整理、数据分析、代码执行和人工审�
 
 当前源码版本 **0.9.0**。Flet 桌面端与 OpenTUI 终端端共用 Python 运行时、会话记录和设置。公开仓库持续更新，采用 [Apache-2.0](LICENSE) 许可。本次界面更新请从源码启动，已有安装器未重新构建。
 
+本轮完善了数据源失败降级、本地材料处理、取消后的审批与子任务恢复；流式回复按批次更新，代码块增加直接复制。变化与验证范围见[智能体执行与科研流程改进](docs/agent-reliability-2026-10-15.md)。
+
 ![SciZhi 深色科研工作台](assets/ui-workbench.png)
 
-原生桌面界面，使用隔离离线样例。下图为浅色 20px 界面下的会话代码预览，代码字号独立保持 14px。
+原生桌面界面，使用隔离离线样例。下图展示会话中的代码预览，支持独立字号、行号、换行和保留原始缩进的直接复制。
 
-![浅色大字号会话与代码预览](assets/ui-code-conversation.png)
+![会话中的代码展示与复制入口](assets/ui-code-conversation.png)
 
 ## 开始使用
 
@@ -69,6 +71,8 @@ python scripts/gezhi.py demo "large language model agents" --out data/exports/de
 在桌面「设置」的模型配置中填写服务地址、模型与凭据，保存后执行连接检测。支持 OpenAI 兼容接口，可配置默认模型、阶段模型与思考强度；服务端支持情况决定哪些参数实际生效。
 
 也可设置 `GEZHI_LLM_BASE_URL`、`GEZHI_LLM_MODEL` 和 `GEZHI_LLM_API_KEY` 环境变量，示例见 [.env.example](.env.example)。不要把实际密钥写入源码、截图或公开 Issue。使用云端模型时，发送的上下文会交给所配置的服务处理。
+
+OpenAlex 基础检索可匿名访问；免费 API key 可扩大限额，游标翻页需要 key，详见 [OpenAlex 认证说明](https://help.openalex.org/api/authentication/)。如需认证，在启动应用前设置 `GEZHI_OPENALEX_API_KEY` 环境变量，检索与 `doctor` 探测会通过 `Authorization: Bearer` 请求头发送。项目不会自动加载 `.env` 文件；该凭据不写入查询参数、检索缓存或调用日志。
 
 ```powershell
 python scripts/gezhi.py agent "整理课题的研究问题与验证步骤" --mode plan

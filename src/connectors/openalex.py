@@ -5,12 +5,14 @@
 - 磁盘响应缓存（data/cache，TTL 24h），重复检索零网络开销；
 - 失败指数退避重试，遵守 OpenAlex 礼貌策略（mailto 标识）。
 
-OpenAlex 为免费开放接口（https://api.openalex.org），无需密钥。
+OpenAlex 基础查询支持匿名访问；可选免费 API key 可扩大限额，游标翻页需要 key。
+认证仅使用 Authorization 请求头，不进入查询参数、缓存标识和调用日志。
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from typing import Any
 
@@ -32,6 +34,23 @@ _client = httpx.Client(timeout=_TIMEOUT, http2=False,
                        limits=httpx.Limits(max_connections=10,
                                            max_keepalive_connections=5),
                        headers={"User-Agent": "GezhiSciZhi/0.2 (mailto:" + MAILTO + ")"})
+
+
+def request_headers() -> dict[str, str]:
+    """按请求读取可选凭据，不存入共享客户端状态。"""
+    api_key = os.environ.get("GEZHI_OPENALEX_API_KEY", "").strip()
+    return {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
+
+def _error_summary(error: Exception | None) -> str:
+    """只保留错误类别和状态码，不转发服务端原文或请求凭据。"""
+    if isinstance(error, httpx.HTTPStatusError):
+        status = error.response.status_code
+        hint = {401: "请检查 GEZHI_OPENALEX_API_KEY",
+                403: "请检查凭据与访问权限",
+                429: "请求频率或配额受限，请稍后重试"}.get(status, "服务端请求失败")
+        return f"HTTP {status}（{hint}）"
+    return type(error).__name__ if error is not None else "未知错误"
 
 
 def _cache_get(key: str) -> dict[str, Any] | None:
@@ -62,22 +81,20 @@ def _get(path: str, params: dict[str, Any], node: str) -> dict[str, Any]:
     last_err: Exception | None = None
     for attempt in range(_MAX_RETRY):
         try:
-            resp = _client.get(f"{BASE}{path}", params=params)
-            if resp.status_code == 429:  # 限流：指数退避
-                time.sleep(2 ** attempt)
-                continue
+            resp = _client.get(f"{BASE}{path}", params=params, headers=request_headers())
             resp.raise_for_status()
             data = resp.json()
             _cache_put(key, data)
             log_tool(node, "openalex", str(params)[:120],
                      f"http={resp.status_code}", int((time.perf_counter() - t0) * 1000), "success")
             return data
-        except Exception as e:  # noqa: BLE001 —— 网络异常统一重试
+        except (httpx.HTTPError, ValueError) as e:
             last_err = e
             time.sleep(2 ** attempt)
-    log_tool(node, "openalex", str(params)[:120], f"error={last_err}",
+    detail = _error_summary(last_err)
+    log_tool(node, "openalex", str(params)[:120], f"error={detail}",
              int((time.perf_counter() - t0) * 1000), "failed")
-    raise RuntimeError(f"OpenAlex 请求失败: {last_err}")
+    raise RuntimeError(f"OpenAlex 请求失败: {detail}") from None
 
 
 def _reconstruct_abstract(inv_index: dict[str, list[int]] | None) -> str:

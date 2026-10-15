@@ -950,16 +950,18 @@ class AdaptiveDriver:
             consume(self, state)
         if state["status"] in {"done", "cancelled", "blocked", "error"}:
             raise ValueError("会话已结束，请新建会话")
+        if state.get("active_call") or state.get("active_calls") or state["queue"]:
+            # A durable receipt may restore waiting_children after a crash
+            # before _observe. Reconcile before choosing any wait boundary.
+            self._reconcile_interrupted(state)
         if state["status"] == "waiting_children":
             progress = self.runtime.children_progress(state.get("children_waiting") or [])
             if progress["waiting"]:
                 return self._result(state, **progress, reason="子智能体尚未完成，请先处理审批")
+            self.runtime._consume_child_handoff(sid, state.get("children_waiting") or [])
             state["messages"].append({"role": "user", "content":
                 "子智能体状态更新（数据），请核查后继续：" + json.dumps(progress["children"], ensure_ascii=False)})
             state.pop("children_waiting", None)
-        if state.get("active_call") or state.get("active_calls") or state["queue"]:
-            # 对账恢复：补齐或合成中断调用的结果，交给自愈循环兜底。
-            self._reconcile_interrupted(state)
         if state["status"] == "waiting_task":
             from . import service
             task = service.get(state.get("task_id", ""))

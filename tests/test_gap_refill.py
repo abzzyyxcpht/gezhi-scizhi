@@ -8,10 +8,12 @@
 from __future__ import annotations
 
 import unittest
+from concurrent.futures import CancelledError
 from unittest import mock
 
 from src.agents import extraction, literature
-from src.orchestrator.engine import TaskContext
+from src.connectors import crossref, openalex
+from src.orchestrator.engine import PauseRequested, TaskContext
 
 
 def _work(wid: str, title: str, score: float = 0.9) -> dict:
@@ -51,8 +53,13 @@ def _fake_rule_sections(topic: str, records: list[dict]) -> list[dict]:
     ]
 
 
-def _fake_search(works: list[dict]):
-    def _search(query: str, per_page: int, year_from, year_to, node: str):
+def _fake_search(works: list[dict], metadata: dict | None = None):
+    def _search(query: str, per_page: int, year_from, year_to, node: str, *, diagnostics=None):
+        if diagnostics is not None:
+            diagnostics.update(metadata or {
+                "source_counts": {"openalex": len(works), "crossref": 0},
+                "source_status": {"openalex": "success", "crossref": "disabled"},
+                "degraded": False, "warnings": []})
         return list(works), {"openalex": len(works), "crossref": 0}
     return _search
 
@@ -172,6 +179,8 @@ class GapRefillRunTest(unittest.TestCase):
         result = self._run(ctx, works=[])
         self.assertFalse(result["gap_refill"]["triggered"])
         self.assertEqual(result["gap_refill"]["reason"], "补检无结果")
+        self.assertEqual(result["gap_refill"]["status"], "empty")
+        self.assertFalse(result["gap_refill"]["degraded"])
         self.assertEqual(len(ctx.artifacts["lit_filter"]["pool"]), 2)
 
     def test_search_failure_is_not_an_error(self):
@@ -183,6 +192,72 @@ class GapRefillRunTest(unittest.TestCase):
             result = extraction.build_review_frame(ctx, {})
         self.assertFalse(result["gap_refill"]["triggered"])
         self.assertIn("补检检索失败", result["gap_refill"]["reason"])
+        self.assertEqual(result["gap_refill"]["status"], "failed")
+        self.assertTrue(result["gap_refill"]["degraded"])
+
+    def test_partial_search_diagnostics_are_returned_and_emitted(self):
+        ctx = _ctx()
+        metadata = {"source_counts": {"openalex": 1, "crossref": 0},
+                    "source_status": {"openalex": "success", "crossref": "failed"},
+                    "degraded": True, "warnings": ["CrossRef 检索失败，本次结果未包含该源。"]}
+        with mock.patch.object(extraction, "_rule_sections", side_effect=_fake_rule_sections), \
+             mock.patch.object(literature, "_dual_source_search", side_effect=_fake_search(NEW_WORKS, metadata)), \
+             mock.patch.object(literature, "score_pool", side_effect=_fake_score(NEW_WORKS)):
+            result = extraction.build_review_frame(ctx, {})
+        refill = result["gap_refill"]
+        self.assertTrue(refill["triggered"])
+        self.assertEqual(refill["status"], "completed")
+        self.assertTrue(refill["degraded"])
+        self.assertEqual(refill["search_metadata"], metadata)
+        self.assertEqual(refill["warnings"], metadata["warnings"])
+        self.assertTrue(any(metadata["warnings"][0] in event["message"] for event in ctx.events))
+
+    def test_failed_refill_replay_does_not_search_again(self):
+        ctx = _ctx()
+        with mock.patch.object(extraction, "_rule_sections", side_effect=_fake_rule_sections), \
+             mock.patch.object(literature, "_dual_source_search", side_effect=RuntimeError("source offline")):
+            ctx.artifacts["review_frame"] = extraction.build_review_frame(ctx, {})
+        with mock.patch.object(extraction, "_rule_sections", side_effect=_fake_rule_sections), \
+             mock.patch.object(literature, "_dual_source_search") as search:
+            result = extraction.build_review_frame(ctx, {})
+        search.assert_not_called()
+        self.assertEqual(result["gap_refill"]["status"], "failed")
+        self.assertIn("补检检索失败", result["gap_refill"]["reason"])
+
+    def test_search_control_exceptions_propagate(self):
+        for error in (PermissionError("denied"), CancelledError(), PauseRequested()):
+            ctx = _ctx()
+            with self.subTest(exception=type(error).__name__), \
+                 mock.patch.object(extraction, "_rule_sections", side_effect=_fake_rule_sections), \
+                 mock.patch.object(literature, "_dual_source_search", side_effect=error):
+                with self.assertRaises(type(error)):
+                    extraction.build_review_frame(ctx, {})
+
+    def test_all_source_failures_keep_metadata_without_changing_evidence(self):
+        ctx = _ctx()
+        old_pool = list(ctx.artifacts["lit_filter"]["pool"])
+        old_records = list(ctx.artifacts["extract"]["records"])
+        sections = _fake_rule_sections("retrieval", old_records)
+        with mock.patch.object(literature.app_settings, "load", return_value={"enable_crossref": True}), \
+             mock.patch.object(literature.config, "LIT_ENABLE_CROSSREF", True), \
+             mock.patch.object(openalex, "search", side_effect=RuntimeError("source offline")), \
+             mock.patch.object(crossref, "search", side_effect=RuntimeError("source offline")):
+            refill, kept_sections = extraction._gap_refill(ctx, {}, "retrieval", sections, False)
+        self.assertEqual(refill["status"], "failed")
+        self.assertEqual(refill["search_metadata"]["source_status"],
+                         {"openalex": "failed", "crossref": "failed"})
+        self.assertEqual(refill["search_metadata"]["source_counts"], {"openalex": 0, "crossref": 0})
+        self.assertEqual(ctx.artifacts["lit_filter"]["pool"], old_pool)
+        self.assertEqual(ctx.artifacts["extract"]["records"], old_records)
+        self.assertEqual(kept_sections, sections)
+
+    def test_doi_variants_do_not_reenter_pool_during_refill(self):
+        ctx = _ctx()
+        duplicate = {**_work("W9", "Alpha retrieval"), "doi": "HTTP://DX.DOI.ORG/10.9999/W1"}
+        result = self._run(ctx, works=[duplicate])
+        self.assertFalse(result["gap_refill"]["triggered"])
+        self.assertEqual(result["gap_refill"]["status"], "empty")
+        self.assertEqual(len(ctx.artifacts["lit_filter"]["pool"]), 2)
 
 
 if __name__ == "__main__":

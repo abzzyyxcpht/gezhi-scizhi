@@ -287,7 +287,7 @@ class SubagentIsolationTest(unittest.TestCase):
         self.assertEqual(statuses, ["running", "done"])
 
     def test_fixture_watermark_present_in_demo_artifacts(self) -> None:
-        """诚实性：fixtures 降级产物抬头带显式水印，degraded 字段保留。"""
+        """显式离线演示带水印；在线失败不产生演示文献。"""
         ws: dict = {}
         lit = run_spec("literature", "large language model agents",
                        workspace=ws, offline=True)
@@ -299,15 +299,16 @@ class SubagentIsolationTest(unittest.TestCase):
         digest = str(ws.get("digest_md") or "")
         self.assertTrue(digest.startswith(DEMO_WATERMARK))
         self.assertIn("执行专家", digest)  # spec.prompt 写入产物抬头
-        # 在线检索失败降级时：水印与 degraded 同时存在
         ws2: dict = {}
         from src.agents import literature as literature_mod
         with mock.patch.object(literature_mod, "literature_recursive_filter",
                                side_effect=ConnectionError("no network")):
             degraded = run_spec("literature", "agent collaboration",
                                 workspace=ws2, offline=False)
-        self.assertTrue(degraded["degraded"])
-        self.assertIn(DEMO_WATERMARK, degraded["notice"])
+        self.assertFalse(degraded["ok"])
+        self.assertIn("no network", degraded["error"])
+        self.assertNotIn("pool", ws2)
+        self.assertNotIn(DEMO_WATERMARK, degraded.get("notice", ""))
 
 
 class SplitQueriesTest(unittest.TestCase):

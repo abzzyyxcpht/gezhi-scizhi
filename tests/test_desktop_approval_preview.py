@@ -1,5 +1,7 @@
 """Approval previews retain source settings and accurately describe the pending edit."""
 from unittest import mock
+import asyncio
+from types import SimpleNamespace
 
 import flet as ft
 import pytest
@@ -96,3 +98,24 @@ def test_long_approval_diff_discloses_omitted_changes(approval_ui):
     assert preview is not None
     assert len(preview.source.splitlines()) == 260
     assert any('仅展示前 260 行' in str(getattr(node, 'value', '')) for node in controls(block))
+
+
+@pytest.mark.parametrize('fails', [False, True])
+def test_copy_approval_command_waits_for_clipboard_and_reports_actual_result(approval_ui, fails):
+    ui, _ = approval_ui
+    command = 'python analysis.py --title "研究"'
+    async def write_clipboard(value):
+        ui.page.show_dialog.assert_not_called()
+        if fails:
+            raise OSError('private clipboard diagnostic')
+    ui.page.clipboard = SimpleNamespace(set=mock.AsyncMock(side_effect=write_clipboard))
+    ui.render_approval({'id': 'copy-command', 'tool': 'shell.run', 'capability': 'write',
+                       'arguments': {'command': command}}, 'session-a')
+    copy = next(node for node in controls(ui.agent_approval_card)
+                if getattr(node, 'tooltip', None) == '复制命令')
+    ui.page.show_dialog.reset_mock()
+    asyncio.run(copy.on_click(None))
+    ui.page.clipboard.set.assert_awaited_once_with(command)
+    feedback = ui.page.show_dialog.call_args.args[0].content.value
+    assert ('失败' in feedback) if fails else ('已复制' in feedback)
+    assert 'private clipboard diagnostic' not in feedback

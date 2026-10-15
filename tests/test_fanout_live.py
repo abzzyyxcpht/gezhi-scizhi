@@ -25,7 +25,7 @@ CATALOG = {
 }
 
 
-def _fake_search(query: str, per_page: int, year_from, year_to, node: str):
+def _fake_search(query: str, per_page: int, year_from, year_to, node: str, **kwargs):
     if query == "query boom":
         raise ConnectionError("fixture network failure")
     works = CATALOG.get(query, [])
@@ -45,6 +45,7 @@ class FanoutLiveTest(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.runtime = AgentRuntime(session_root=Path(self._tmp.name),
                                     offline=False,
+                                    llm_enabled=False,
                                     permissions={"subagent.fanout": "allow"})
         self.sid = "fanoutlive01"
         self.runtime._session_agent[self.sid] = "research"
@@ -136,6 +137,39 @@ class FanoutLiveTest(unittest.TestCase):
                 events = runtime.sessions.read(branch["child_session"])
                 self.assertEqual(events[0]["payload"]["parent"], sid)
                 self.assertEqual(events[-1]["type"], "completed")
+
+    def test_source_degradation_reaches_branch_result_and_workspace(self):
+        metadata = {'source_counts': {'openalex': 0, 'crossref': 1},
+                    'source_status': {'openalex': 'failed', 'crossref': 'success'},
+                    'degraded': True, 'warnings': ['OpenAlex unavailable']}
+        def search(*args, diagnostics=None, **kwargs):
+            if diagnostics is not None:
+                diagnostics.update(metadata)
+            return [_work('C1', '真实检索夹具')], metadata['source_counts']
+        with mock.patch.object(literature, '_dual_source_search', side_effect=search), \
+             mock.patch.object(literature, 'score_pool', side_effect=_fake_score):
+            result = self.runtime._subagent_fanout({'__session_id': self.sid,
+                'agents': ['literature'], 'requests': ['topic']})
+        self.assertTrue(result['ok'])
+        self.assertTrue(result['degraded'])
+        self.assertTrue(result['warnings'])
+        self.assertEqual(result['branches'][0]['search_metadata'], metadata)
+        saved = self.runtime._workspaces[self.sid]['fanout'][0]
+        self.assertEqual(saved['search_metadata'], metadata)
+
+    def test_all_failed_searches_keep_existing_evidence_and_source_diagnostics(self):
+        original = [_work('existing', '已确认材料')]
+        self.runtime._workspaces[self.sid]['pool'] = original
+        metadata = {'source_counts': {'openalex': 0, 'crossref': 0},
+                    'source_status': {'openalex': 'failed', 'crossref': 'failed'},
+                    'degraded': True, 'warnings': ['All sources unavailable']}
+        with mock.patch.object(literature, '_dual_source_search',
+                               side_effect=literature.LiteratureSearchError('all failed', metadata)):
+            result = self.runtime._subagent_fanout({'__session_id': self.sid,
+                'agents': ['literature'], 'requests': ['topic']})
+        self.assertFalse(result['ok'])
+        self.assertEqual(result['branches'][0]['search_metadata'], metadata)
+        self.assertEqual(self.runtime._workspaces[self.sid]['pool'], original)
 
 
 if __name__ == "__main__":

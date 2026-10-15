@@ -342,6 +342,9 @@ class AgentRuntime:
         self._session_agent: dict[str, str] = {}
         self._workspaces: dict[str, dict[str, Any]] = {}
         self._children: dict[str, list[str]] = {}
+        # One suspended child group per parent turn. Kept outside the research
+        # workspace so children never inherit a parent's consumption cursor.
+        self._child_handoffs: dict[str, dict[str, Any]] = {}
         # 并行只读批次会并发写工作区存档，需串行化 _save_workspace。
         self._workspace_lock = threading.Lock()
         self._children_lock = threading.RLock()
@@ -738,6 +741,11 @@ class AgentRuntime:
         if driver.path(session_id).is_file():
             return driver.approve(session_id, tool_call_id, decision)
         self._restore_session_meta(session_id)
+        # A process may exit after cancellation is durable but before its
+        # terminal event. An old approval must neither grant nor execute work.
+        if (self.sessions.root / f"{session_id}.cancel").exists():
+            status = self._publish_terminal(session_id, "cancelled")
+            return {"session_id": session_id, "status": status}
         # Recheck the durable log even when this process has a cached request:
         # another runtime may already have approved or denied it.
         pending = self._recover_pending(session_id, tool_call_id)
@@ -832,7 +840,7 @@ class AgentRuntime:
                 if pending[0] == session_id:
                     self._pending.pop(call_id, None)
             for cached in (self._session_agent, self._session_topics, self._session_results,
-                           self._workspaces, self._children):
+                           self._workspaces, self._children, self._child_handoffs):
                 cached.pop(session_id, None)
         for event in events:
             payload = event.get("payload") or {}
@@ -859,6 +867,10 @@ class AgentRuntime:
             if state.get("results"):
                 self._session_results[session_id] = state["results"]
             self._children[session_id] = state.get("children") or []
+            if state.get("child_handoff"):
+                self._child_handoffs[session_id] = state["child_handoff"]
+            else:
+                self._child_handoffs.pop(session_id, None)
 
     def _save_workspace(self, session_id: str) -> None:
         from .state_store import write_json
@@ -867,7 +879,8 @@ class AgentRuntime:
                 "schema_version": 1, "session_id": session_id,
                 "workspace": self._workspaces.get(session_id) or {},
                 "results": self._session_results.get(session_id) or {},
-                "children": self._children.get(session_id) or []})
+                "children": self._children.get(session_id) or [],
+                "child_handoff": self._child_handoffs.get(session_id)})
 
     def continue_session(self, session_id: str) -> dict[str, Any]:
         from .agent_driver import AdaptiveDriver
@@ -880,20 +893,26 @@ class AgentRuntime:
                 snapshot = self.sessions.snapshot(session_id)
                 if snapshot.get("status") != "waiting_children":
                     raise ValueError("该会话不是可继续的模型驱动会话")
+                self._restore_session_meta(session_id)
+                if (self.sessions.root / f"{session_id}.cancel").exists():
+                    return {"session_id": session_id, "status": self._publish_terminal(session_id, "cancelled")}
                 waiting = next(e["payload"] for e in reversed(self.sessions.read(session_id))
                                if e["type"] == "children_waiting")
                 progress = self.children_progress(waiting["children"])
                 if progress["waiting"]:
                     return {"session_id": session_id, "status": "waiting_children", **progress}
+                self._consume_child_handoff(session_id, waiting["children"])
                 return self._continue(session_id, waiting["steps"], waiting["next_index"])
             outcome = driver.resume(session_id)
             self._sync_child_outcome(session_id, outcome)
             return outcome
 
     def children_progress(self, children: list[str]) -> dict[str, Any]:
-        rows = [self.sessions.snapshot(child) for child in children]
+        # Failed spawn artifacts stay isolated, but the parent still needs the
+        # actual retrieval failure when it receives the child status update.
+        rows = [{**self.sessions.snapshot(child), **self._child_search_diagnostics(child)} for child in children]
         waiting = [row["session_id"] for row in rows if row["status"] not in
-                   {"done", "error", "blocked", "cancelled"}]
+                   {"done", "partial", "error", "blocked", "cancelled"}]
         return {"children": rows, "waiting": waiting}
 
     def _wait_children(self, session_id: str, result: dict[str, Any],
@@ -901,12 +920,105 @@ class AgentRuntime:
         children = list(result.get("children_waiting") or [])
         progress = self.children_progress(children)
         if not progress["waiting"]:
+            self._consume_child_handoff(session_id, children)
             return self._continue(session_id, steps, next_index)
         self.sessions.append(session_id, "children_waiting", {
             "children": children, "steps": steps, "next_index": next_index})
         self.sessions.append(session_id, "driver_paused", {"status": "waiting_children"})
         return {"session_id": session_id, "status": "waiting_children",
                 **self.children_progress(children)}
+
+    def _defer_child_handoff(self, parent: str, kind: str, children: list[str], waiting: list[str]) -> None:
+        self._child_handoffs[parent] = {"kind": kind, "children": list(children),
+                                        "waiting": list(waiting), "consumed": False}
+        self._save_workspace(parent)
+
+    def _recover_child_handoff(self, parent: str, waiting: list[str]) -> dict[str, Any] | None:
+        """Read legacy waits from tool identities, never from model prose."""
+        events = self.sessions.read(parent)
+        for index in range(len(events) - 1, -1, -1):
+            event = events[index]
+            payload = event.get("payload") or {}
+            result = payload.get("result") or {}
+            if (event["type"] != "tool_result" or result.get("status") != "waiting_children"
+                    or result.get("children_waiting") != waiting
+                    or payload.get("name") not in {"subagent.spawn", "subagent.fanout"}):
+                continue
+            kind = payload["name"].split(".")[1]
+            children = list(waiting)
+            if kind == "fanout":
+                children = [row["child_session"] for row in result.get("branches") or []
+                            if row.get("child_session")]
+                if not children:
+                    # Large receipts may omit branches. The saved parent child
+                    # list is already in fanout input order, unlike log arrival.
+                    start = next((i for i in range(index - 1, -1, -1)
+                                  if events[i]["type"] == "tool_call"
+                                  and events[i].get("payload", {}).get("id") == payload.get("id")), index)
+                    launched = {e.get("payload", {}).get("child") for e in events[start:index]
+                                if e["type"] == "subagent_started"}
+                    children = [child for child in self._children.get(parent, []) if child in launched]
+            if not children or not set(waiting).issubset(children):
+                raise ValueError("无法恢复子智能体产物的原始顺序")
+            return {"kind": kind, "children": children, "waiting": list(waiting), "consumed": False}
+        return None
+
+    def _consume_child_handoff(self, parent: str, waiting: list[str]) -> None:
+        """Merge at the parent's locked resume boundary, once across restarts.
+
+        Workspace data and the consumed marker share one atomic snapshot. Child
+        completions never write a parent's cached workspace in another runtime.
+        """
+        from .session_lock import session_terminal_lock
+        with session_terminal_lock(self.sessions._path(parent)):
+            if (self.sessions.root / f"{parent}.cancel").exists():
+                return
+            self._restore_session_meta(parent)
+            handoff = self._child_handoffs.get(parent)
+            if not handoff or handoff.get("waiting") != waiting:
+                handoff = self._recover_child_handoff(parent, waiting)
+            if not handoff or handoff.get("consumed"):
+                return
+            progress = self.children_progress(handoff["children"])
+            if progress["waiting"]:
+                raise ValueError("子智能体尚未完成，不能归并产物")
+            workspace = copy.deepcopy(self._workspaces.get(parent) or {})
+            pools, branches = [], []
+            previous = workspace.get("fanout") or []
+            for index, child in enumerate(progress["children"]):
+                cid = child["session_id"]
+                self.sessions._path(cid)
+                if self.sessions._sidechain_parents.get(cid) != parent:
+                    raise ValueError("子智能体产物不属于当前父会话")
+                succeeded = child["status"] in {"done", "partial"}
+                child_ws = {}
+                if succeeded:
+                    self._restore_session_meta(cid)
+                    child_ws = self._workspaces.get(cid) or {}
+                if handoff["kind"] == "spawn":
+                    workspace.update(copy.deepcopy(child_ws))
+                else:
+                    pool = child_ws.get("pool") or []
+                    pools.append(pool)
+                    old = previous[index] if index < len(previous) else {}
+                    diagnostics = {k: child[k] for k in
+                                   ('search_metadata', 'source_counts', 'degraded', 'warnings') if k in child}
+                    if not diagnostics and not (self.sessions.root / f"{cid}.driver.json").is_file():
+                        # Deterministic branches have no nested tool receipts;
+                        # their original fanout row is already the direct result.
+                        diagnostics = {k: old[k] for k in
+                                       ('search_metadata', 'source_counts', 'degraded', 'warnings') if k in old}
+                    branches.append({"source_counts": {}, **diagnostics,
+                                     "request": child.get("request", ""), "pool_count": len(pool),
+                                     "ok": succeeded})
+            if handoff["kind"] == "fanout":
+                from .agents.specialists import merge_pools
+                workspace['fanout'] = branches
+                if any(branch['ok'] for branch in branches):
+                    workspace['pool'] = merge_pools(*pools)
+            self._workspaces[parent] = workspace
+            self._child_handoffs[parent] = {**handoff, "consumed": True}
+            self._save_workspace(parent)
 
     def _terminal_status(self, session_id: str) -> str | None:
         """Read only the durable terminal event for the current user turn."""
@@ -1453,7 +1565,7 @@ class AgentRuntime:
                 pass
         self._write_child_meta(parent, meta)
         self._save_workspace(child_id)
-        if parent:
+        if parent and merge_workspace:
             self._save_workspace(parent)
         return {**result, "child_session": child_id, "parent_session": parent,
                 "steps": steps, "tokens": tokens}
@@ -1511,19 +1623,65 @@ class AgentRuntime:
         result = driver._run(state)
         return result
 
-    @staticmethod
-    def _child_result_from_driver(spec: AgentSpec, outcome: dict[str, Any]) -> dict[str, Any]:
+    def _child_search_diagnostics(self, child_id: str | None) -> dict[str, Any]:
+        """Latest retrieval receipt in this child's current turn, never inherited workspace data."""
+        if not isinstance(child_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", child_id):
+            return {}
+        for event in reversed(self.sessions.read(child_id)):
+            if event["type"] == "user_message":
+                break
+            payload = event.get("payload") or {}
+            if event["type"] != "tool_result" or payload.get("name") != "literature.run":
+                continue
+            result = payload.get("result") or {}
+            if "search_metadata" not in result and result.get("output_ref"):
+                # Long retrieval rounds may be archived. Resolve the verified,
+                # session-scoped receipt, not its truncated human preview.
+                from .tool_output_runtime import output_store
+                archive = output_store(self.sessions.root)
+                try:
+                    directory = archive._directory(child_id)
+                    reference = result["output_ref"]
+                    with archive._lock(directory), archive._verified_output(
+                            directory, child_id, reference["output_id"]) as (ref, stream):
+                        if (ref["tool"] != payload["name"] or ref["call_id"] != payload.get("id")
+                                or ref["kind"] != "json"):
+                            raise ValueError("检索回执归档身份不匹配")
+                        result = json.load(stream)
+                except (OSError, ValueError, TypeError, KeyError):
+                    result = {"search_metadata": {"degraded": True,
+                              "warnings": ["子任务检索诊断归档无法核查，请检查工具输出。"]}}
+            elif result.get("output_unavailable"):
+                result = {"search_metadata": {"degraded": True,
+                          "warnings": ["子任务检索诊断未能归档，请检查工具输出。"]}}
+            metadata = result.get("search_metadata")
+            metadata = copy.deepcopy(metadata) if isinstance(metadata, dict) else {}
+            if not metadata and not any(result.get(key) for key in ('degraded', 'warnings', 'search_status')):
+                return {}
+            if isinstance(result.get('search_status'), str):
+                metadata['search_status'] = result['search_status']
+            warnings = list(dict.fromkeys(str(warning) for warning in
+                [*(metadata.get("warnings") or []), *(result.get("warnings") or [])]))
+            metadata.update(degraded=bool(metadata.get("degraded") or result.get("degraded")
+                                         or result.get('search_status') == 'failed' or warnings),
+                            warnings=warnings)
+            return {"search_metadata": metadata, "source_counts": copy.deepcopy(metadata.get("source_counts") or {}),
+                    "degraded": metadata["degraded"], "warnings": warnings}
+        return {}
+
+    def _child_result_from_driver(self, spec: AgentSpec, outcome: dict[str, Any]) -> dict[str, Any]:
         """把子驱动循环结果折叠为回传父代理的工具结果（只有摘要，无中间历史）。"""
         status = outcome.get("status")
+        diagnostics = self._child_search_diagnostics(outcome.get("session_id"))
         if status == "done":
-            return {"ok": True, "agent": spec.name,
+            return {"ok": True, "agent": spec.name, **diagnostics,
                     "summary": str(outcome.get("content") or "")}
         if status == "waiting_approval":
-            return {"ok": False, "agent": spec.name,
+            return {"ok": False, "agent": spec.name, **diagnostics,
                     "error": (f"子智能体 {spec.name} 触发工具审批；"
                               f"请处理子会话后继续"),
                     "pending": outcome.get("pending")}
-        return {"ok": False, "agent": spec.name,
+        return {"ok": False, "agent": spec.name, **diagnostics,
                 "error": (f"子智能体 {spec.name} 结束状态 {status}："
                           f"{outcome.get('error') or outcome.get('reason') or ''}").rstrip("：")}
 
@@ -1550,6 +1708,7 @@ class AgentRuntime:
                 self._sync_child_outcome(child_id, outcome)
                 result = self._child_result_from_driver(spec, outcome)
                 if outcome.get("status") in {"waiting_approval", "waiting_task", "waiting_children"}:
+                    self._defer_child_handoff(parent, "spawn", [child_id], [child_id])
                     return {**result, "ok": True, "status": "waiting_children",
                             "child_session": child_id, "children_waiting": [child_id],
                             "parent_session": parent}
@@ -1609,8 +1768,8 @@ class AgentRuntime:
 
             在线且 LLM 可用时每路走真子代理（独立 driver 循环与预算）；
             离线走 specialists 确定性 runner；在线但无 LLM 时 literature
-            保留真实双源检索快路径，其余专家按其 runner 语义执行。仿
-            _subagent_spawn 落 sidechain 事件；只写本分支 child 会话与
+            保留真实双源检索快路径，其余专家按其 runner 语义执行。
+            每路记录子会话事件；只写本分支 child 会话与
             局部 ws，合并阶段才写父 workspace。
             """
             request = requests[i]
@@ -1624,6 +1783,7 @@ class AgentRuntime:
                                          str(branch_ids[i]) if i < len(branch_ids) else "")
             steps = tokens = 0
             source_counts: dict[str, int] = {}
+            search_metadata: dict[str, Any] = {}
             status = "running"
             try:
                 if cancelled():
@@ -1641,11 +1801,13 @@ class AgentRuntime:
                 elif not self.offline and spec.name == "literature":
                     from .research_context import binding_for_session
                     candidates, source_counts = literature._dual_source_search(
-                        request, app_config.LIT_PER_PAGE, None, None, node="fanout")
+                        request, app_config.LIT_PER_PAGE, None, None, node="fanout",
+                        diagnostics=search_metadata)
                     scored = literature.score_pool(request, candidates,
                         context_scope=binding_for_session(self.sessions, child_id))
                     self._workspaces[child_id]["pool"] = list(scored.get("pool") or [])
-                    row = {"ok": True}
+                    self._workspaces[child_id]['search_metadata'] = search_metadata
+                    row = {"ok": True, 'search_metadata': search_metadata}
                 else:
                     from .research_context import binding_for_session
                     row = run_spec(spec.name, request,
@@ -1653,10 +1815,18 @@ class AgentRuntime:
                                    context_scope=binding_for_session(self.sessions, child_id))
             except Exception as exc:  # A failing specialist must not abandon its siblings.
                 row, status = {"ok": False, "error": str(exc)}, "error"
+                if isinstance(exc, literature.LiteratureSearchError):
+                    row['search_metadata'] = exc.search_metadata
             if cancelled():
                 row, status = {"ok": False, "error": "父会话已取消"}, "cancelled"
             if status == "running":
                 status = "done" if row.get("ok") else "error"
+            search_metadata = row.get('search_metadata') or search_metadata
+            if search_metadata:
+                source_counts = search_metadata.get('source_counts') or source_counts
+                row.update(search_metadata=search_metadata,
+                           degraded=bool(search_metadata.get('degraded')),
+                           warnings=list(search_metadata.get('warnings') or []))
             ok = status == "done" and bool(row.get("ok"))
             pool = list(self._workspaces[child_id].get("pool") or []) if ok else []
             error = "" if ok else str(row.get("error") or "")
@@ -1665,6 +1835,9 @@ class AgentRuntime:
                       "ok": ok, "child_session": child_id, "status": status,
                       "steps": steps, "tokens": tokens,
                       "summary": str(row.get("summary") or "")}
+            if search_metadata:
+                branch.update(search_metadata=search_metadata,
+                              degraded=row['degraded'], warnings=row['warnings'])
             if row.get("pending"):
                 branch["pending"] = row["pending"]
             if error:
@@ -1694,23 +1867,31 @@ class AgentRuntime:
         self._children.setdefault(parent, [])[children_before:] = child_ids
         merged = merge_pools(*live_pools)
         workspace = self._workspaces.setdefault(parent, {})
-        workspace["pool"] = merged
+        if any(branch['ok'] for branch in branches):
+            workspace["pool"] = merged
         workspace["fanout"] = [{k: b[k] for k in
-                                ("request", "pool_count", "source_counts", "ok")}
+                                ("request", "pool_count", "source_counts", "ok", 'search_metadata', 'degraded', 'warnings') if k in b}
                                for b in branches]
         mode = "llm" if use_driver else ("offline" if self.offline else "live")
         failed = sum(1 for b in branches if not b["ok"])
         waiting = [b["child_session"] for b in branches if b["status"] in
                    {"waiting_approval", "waiting_task", "waiting_children"}]
+        if waiting:
+            self._defer_child_handoff(parent, "fanout", child_ids, waiting)
         status = ("cancelled" if cancelled() else "waiting_children" if waiting else
                   "error" if failed == n else "partial" if failed else "done")
         summary = f"并行 {n} 路（{mode}），合并文献 {len(merged)} 篇"
         if failed:
             summary += f"，{failed} 路失败已降级为空池"
+        if failed == n and not waiting:
+            summary += "；已有文献池未修改"
+        warnings = [f"分支 {index + 1}：{warning}" for index, branch in enumerate(branches)
+                    for warning in branch.get('warnings', [])]
         self._save_workspace(parent)
         return {"ok": status not in {"error", "cancelled"}, "status": status,
                 "agent": "fanout", "children": n, "mode": mode,
                 "branches": branches, "pool_count": len(merged),
+                "degraded": bool(failed or warnings), "warnings": warnings,
                 "children_waiting": waiting, "summary": summary,
                 "error": summary if status == "error" else ""}
 

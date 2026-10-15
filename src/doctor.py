@@ -37,9 +37,11 @@ def _deps_check() -> tuple[bool, str]:
 def _openalex_check() -> tuple[bool, str]:
     try:
         import httpx
+        from .connectors import openalex
         t0 = time.perf_counter()
-        r = httpx.get("https://api.openalex.org/works",
+        r = httpx.get(f"{openalex.BASE}/works",
                       params={"search": "test", "per-page": 1},
+                      headers=openalex.request_headers(),
                       timeout=8.0)
         ms = int((time.perf_counter() - t0) * 1000)
         if r.status_code == 200:
