@@ -377,5 +377,60 @@ class DesktopAsyncTest(unittest.TestCase):
         self.assertEqual(table.rows[1].cells[0].content.value, "均值")
 
 
+    def test_delete_failure_keeps_selected_task(self):
+        self.ui.open_task('task-a')
+        self.ui.state['_sig'] = 'keep-signature'
+        self.ui.state['results_key'] = 'keep-results'
+        self.ui.delete_task_confirm('task-a', 'Fixture topic')
+        dialog = self.page.show_dialog.call_args.args[0]
+        with mock.patch.object(desktop.service, 'delete_task', side_effect=PermissionError('文件正在被占用')):
+            dialog.actions[-1].on_click(None)
+        self.assertEqual(self.ui.state['task_id'], 'task-a')
+        self.assertEqual(self.ui.state['_sig'], 'keep-signature')
+        self.assertEqual(self.ui.state['results_key'], 'keep-results')
+        notice = self.page.show_dialog.call_args.args[0]
+        self.assertIsInstance(notice, ft.SnackBar)
+        self.assertIn('删除失败', notice.content.value)
+        self.assertIn('文件正在被占用', notice.content.value)
+
+    def test_already_deleted_task_does_not_claim_new_deletion(self):
+        self.ui.open_task('task-a')
+        self.ui.delete_task_confirm('task-a', 'Fixture topic')
+        dialog = self.page.show_dialog.call_args.args[0]
+        with mock.patch.object(desktop.service, 'delete_task', return_value=False):
+            dialog.actions[-1].on_click(None)
+        self.assertIsNone(self.ui.state['task_id'])
+        self.assertIn('已不存在', self.page.show_dialog.call_args.args[0].content.value)
+
+    def test_graph_refresh_tracks_changed_content_and_missing_files(self):
+        graph = Path(self.fixture.session_root.name) / 'graph-refresh.png'
+        self.ui.state['task_id'] = 'task-a'
+        art = {'topic':'Topic', 'pool':[{'id':'W1','title':'Old','score':.8,'referenced_works':['W2']}]}
+        def render(*args, **kwargs):
+            graph.write_bytes(b'fixture')
+            return {'file':str(graph),'pool_total':1,'nodes':1,'edges':0,'isolated':1}
+        with mock.patch.object(desktop.service, 'evidence_graph', side_effect=render) as build:
+            self.ui.refresh_net_graph(art)
+            self.ui.refresh_net_graph(art)
+            self.assertEqual(build.call_count,1)
+            art['pool'][0]['title']='New'
+            self.ui.refresh_net_graph(art)
+            self.assertEqual(build.call_count,2)
+            graph.unlink()
+            self.ui.refresh_net_graph(art)
+            self.assertEqual(build.call_count,3)
+            self.assertFalse(build.call_args.kwargs.get('force',False))
+
+    def test_stats_explains_nonfinite_and_pairwise_sample_count(self):
+        self.ui.render_stats('fixture.csv', {'shape':[4,2],'columns':['a','b'],
+            'missing':{},'non_finite':{'a':1},'describe':{'a':{'count':1,'mean':2,'std':None}},
+            'outliers':{},'correlations':[{'pair':['a','b'],'r':.9,'n':2}],
+            'chart_advice':[],'charts':[]})
+        text=' '.join(str(getattr(c,'value','')) for c in walk(self.ui.stats_area))
+        self.assertIn('无穷',text)
+        self.assertIn('n=2',text)
+        self.assertNotIn('None',text)
+
+
 if __name__ == "__main__":
     unittest.main()

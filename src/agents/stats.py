@@ -49,12 +49,27 @@ def analyze(path: Path) -> dict[str, Any]:
     """统计主流程：返回结构化结果与图表文件路径。"""
     import numpy as np
     df = load_table(path)
-    num = df.select_dtypes(include=[np.number])
+    labels: list[str] = []
+    used: set[str] = set()
+    for column in df.columns:
+        label = str(column)
+        suffix = 2
+        while label in used:
+            label = f"{column} ({suffix})"
+            suffix += 1
+        labels.append(label)
+        used.add(label)
+    df.columns = labels
+    raw_num = df.select_dtypes(include=[np.number])
+    num = raw_num.where(np.isfinite(raw_num))
+    non_finite = {c: int(np.isinf(raw_num[c]).sum()) for c in raw_num.columns
+                  if np.isinf(raw_num[c]).any()}
     result: dict[str, Any] = {
         "shape": list(df.shape),
         "columns": df.columns.tolist(),
         "dtypes": {c: str(t) for c, t in df.dtypes.items()},
         "missing": {c: int(df[c].isna().sum()) for c in df.columns if df[c].isna().sum() > 0},
+        "non_finite": non_finite,
         "describe": {},
         "outliers": {},
         "correlations": [],
@@ -64,16 +79,19 @@ def analyze(path: Path) -> dict[str, Any]:
 
     if not num.empty:
         desc = num.describe().round(4)
-        result["describe"] = {c: {k: float(v) for k, v in desc[c].items()}
+        result["describe"] = {c: {k: float(v) if np.isfinite(v) else None
+                                  for k, v in desc[c].items()}
                               for c in desc.columns}
 
         # 异常值：IQR 规则
         for c in num.columns:
+            if not num[c].notna().any():
+                continue
             q1, q3 = num[c].quantile(0.25), num[c].quantile(0.75)
             iqr = q3 - q1
             lo, hi = q1 - 1.5 * iqr, q3 + 1.5 * iqr
             idx = num[(num[c] < lo) | (num[c] > hi)].index.tolist()
-            if idx:
+            if idx and np.isfinite(lo) and np.isfinite(hi):
                 result["outliers"][c] = {
                     "rows": idx[:20], "rule": "IQR×1.5",
                     "bounds": [round(float(lo), 4), round(float(hi), 4)],
@@ -87,12 +105,26 @@ def analyze(path: Path) -> dict[str, Any]:
             for i in range(len(cols)):
                 for j in range(i + 1, len(cols)):
                     v = corr.iloc[i, j]
-                    if abs(v) >= 0.5:
-                        pairs.append({"pair": [cols[i], cols[j]], "r": float(v)})
+                    if np.isfinite(v) and abs(v) >= 0.5:
+                        valid_pairs = num[[cols[i], cols[j]]].dropna()
+                        pairs.append({"pair": [cols[i], cols[j]], "r": float(v),
+                                      "n": len(valid_pairs)})
             result["correlations"] = pairs
 
         result["charts"] = _render_charts(num, path.stem)
-        result["chart_advice"] = _chart_advice(df, num)
+        result["chart_advice"] = _chart_advice(df, num.dropna(axis=1, how="all"))
+        if result["missing"] or non_finite:
+            result["chart_advice"].insert(0, "统计与图表仅使用有限数值；缺失值和正负无穷不参与计算，"
+                                            "相关性按成对有效样本计算。")
+        if non_finite:
+            detail = "、".join(f"{c}：{count} 个" for c, count in non_finite.items())
+            result["chart_advice"].append(f"已排除无穷值（{detail}）；原始文件未改动。")
+        for c in num.columns:
+            count = int(num[c].count())
+            if count == 0:
+                result["chart_advice"].append(f"「{c}」没有有效数值，统计量留空，不生成分布图。")
+            elif count == 1:
+                result["chart_advice"].append(f"「{c}」仅有 1 个有效样本，无法估计样本标准差。")
 
     log_tool("stats", "pandas", f"file={path.name} shape={df.shape}",
              f"outlier_cols={list(result['outliers'])}", 0, "success")
@@ -102,6 +134,11 @@ def analyze(path: Path) -> dict[str, Any]:
 def _render_charts(num, stem: str) -> list[str]:
     """渲染直方图与相关性热图（品牌主题），返回文件名列表。"""
     from .. import chartstyle
+    import numpy as np
+
+    num = num.where(np.isfinite(num)).dropna(axis=1, how="all")
+    if num.empty:
+        return []
     plt = _mpl()
     chartstyle.apply(plt)
     files: list[str] = []
@@ -149,6 +186,9 @@ def _render_charts(num, stem: str) -> list[str]:
     if num.shape[1] >= 2:
         corr = num.corr()
         k = len(num.columns)
+        if not any(np.isfinite(corr.iloc[i, j])
+                   for i in range(k) for j in range(i + 1, k)):
+            return files
         fig, ax = plt.subplots(figsize=(6.2, 5.2))
         im = ax.imshow(corr, cmap="RdBu_r", vmin=-1, vmax=1)
         # 白格线：imshow 不接受 edgecolor/linewidth，手绘网格线（格子分明更好读）
@@ -158,14 +198,16 @@ def _render_charts(num, stem: str) -> list[str]:
         ax.set_xticks(range(k), num.columns, rotation=40, ha="right")
         ax.set_yticks(range(k), num.columns)
         ax.set_title("变量相关系数")
-        ax.annotate(f"n = {len(num)}", (1.0, -0.18), xycoords="axes fraction",
+        ax.annotate("按成对有效样本计算；— 表示无法估计", (1.0, -0.18), xycoords="axes fraction",
                     ha="right", va="top", fontsize=9, color=chartstyle.INK_SOFT)
         # 小矩阵直接标数值，读图不用对色卡
         if k <= 8:
             for i in range(k):
                 for j in range(k):
                     v = float(corr.iloc[i, j])
-                    ax.text(j, i, f"{v:.2f}", ha="center", va="center",
+                    count = int((num.iloc[:, i].notna() & num.iloc[:, j].notna()).sum())
+                    label = f"{v:.2f}\nn={count}" if np.isfinite(v) else "—"
+                    ax.text(j, i, label, ha="center", va="center",
                             fontsize=8, zorder=3,
                             color="white" if abs(v) > 0.55 else chartstyle.INK)
         cb = fig.colorbar(im, ax=ax, shrink=0.82, pad=0.02,

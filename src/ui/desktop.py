@@ -250,7 +250,12 @@ def main(page: ft.Page) -> None:
     def delete_task_confirm(tid: str, topic: str) -> None:
         def do_delete(e) -> None:
             page.pop_dialog()
-            service.delete_task(tid)
+            try:
+                deleted = service.delete_task(tid)
+            except Exception as ex:  # noqa: BLE001
+                page.show_dialog(ft.SnackBar(ft.Text(f"删除失败：{ex}", max_lines=3,
+                    overflow=ft.TextOverflow.ELLIPSIS), bgcolor=palette.DANGER))
+                return
             if state["task_id"] == tid:
                 state["task_id"] = None
                 state["_sig"] = None
@@ -262,7 +267,7 @@ def main(page: ft.Page) -> None:
                 refresh_inspector()
                 nav_to(0)
             refresh_history()
-            page.show_dialog(ft.SnackBar(ft.Text(f"已删除任务《{topic[:20]}》"),
+            page.show_dialog(ft.SnackBar(ft.Text(f"已删除任务《{topic[:20]}》" if deleted else "该任务已不存在，列表已更新"),
                                          bgcolor=palette.INFO))
 
         def cancel_delete(e) -> None:
@@ -851,12 +856,13 @@ def main(page: ft.Page) -> None:
         """引用网络 PNG（与锚定账本互补）：池不变时复用缓存，变化才重渲染。"""
         tid = state["task_id"]
         pool_n = len(art.get("pool", []))
-        graph_key = (tid, tuple((w.get("id"), w.get("score")) for w in art.get("pool", [])))
+        graph_key = (tid, service.evidence_graph_signature(art.get("pool") or [], art.get("topic", "")))
         if not tid or not pool_n:
             state["net_key"] = None
             net_card.visible = False
             return
-        if state["net_key"] == graph_key and net_card.visible:
+        if (state["net_key"] == graph_key and net_card.visible
+                and (not net_image.visible or (net_image.src and Path(net_image.src).is_file()))):
             return
         # 渲染约 0.7s（matplotlib 冷启动 + 绘制）：必须放到后台线程，
         # 否则会卡住 UI 事件循环（本函数由轮询回调触达）
@@ -867,7 +873,7 @@ def main(page: ft.Page) -> None:
 
         def work() -> None:
             try:
-                g = service.evidence_graph(tid, force=True)
+                g = service.evidence_graph(tid)
             except Exception:  # noqa: BLE001 —— 图谱失败不影响成果页
                 if state["task_id"] != tid or state["net_key"] != graph_key:
                     return
@@ -1085,6 +1091,10 @@ def main(page: ft.Page) -> None:
             size=14, weight=ft.FontWeight.BOLD, color=palette.TEXT))
         if r["missing"]:
             stats_area.controls.append(ft.Text(f"缺失值：{r['missing']}", size=12))
+        if r.get("non_finite"):
+            excluded = "、".join(f"{column} 列 {count} 个" for column, count in r["non_finite"].items())
+            stats_area.controls.append(ft.Text(f"已排除无穷值：{excluded}；统计与图表仅使用有效样本。",
+                                               size=12, max_lines=3, tooltip=excluded))
         dt = describe_table(r)
         if dt:
             stats_area.controls.append(ft.Text("描述统计", size=13,
@@ -1101,8 +1111,9 @@ def main(page: ft.Page) -> None:
                                     size=12, color=palette.ACCENT)))
         for p in r["correlations"]:
             strength = "强" if abs(p["r"]) >= 0.8 else "中度"
+            sample = f"，成对有效样本 n={p['n']}" if p.get("n") is not None else ""
             stats_area.controls.append(ft.Text(
-                f"相关系数：{p['pair'][0]} 与 {p['pair'][1]} {strength}相关（r={p['r']}）",
+                f"相关系数：{p['pair'][0]} 与 {p['pair'][1]} {strength}相关（r={p['r']}{sample}）",
                 size=12))
         if r["chart_advice"]:
             stats_area.controls.append(ft.Text("图表建议", size=13,

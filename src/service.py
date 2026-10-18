@@ -362,8 +362,8 @@ def artifacts_rev(ctx: TaskContext) -> str:
     """产物轻量版本号：内容变化则变化，用于轮询增量下发（不序列化重字段）。
 
     覆盖口径：已完成节点数、文献池篇数与轮次数、摘要稿长度与抽取条数、
-    综述框架长度、参考文献条数。人工干预（drop/intervene）会改变篇数或
-    节点数，因此同样触发版本变化。
+    综述框架长度、参考文献条数与人工干预次数。等长内容的人工修订也会
+    触发版本变化；图片缓存更新不影响文献产物版本。
     """
     lit = ctx.artifacts.get("lit_filter", {}) or {}
     ex = ctx.artifacts.get("extract", {}) or {}
@@ -375,6 +375,7 @@ def artifacts_rev(ctx: TaskContext) -> str:
         len(ex.get("digest_md") or ""), len(ex.get("records") or []),
         len(rf.get("outline_md") or ""),
         len(ct.get("entries") or []),
+        len(ctx.artifacts.get("_history") or []),
     ))
 
 
@@ -411,24 +412,65 @@ def research_audit(task_id: str) -> dict[str, Any]:
     return analyze_artifacts(ctx.artifacts, topic=ctx.params.get("topic", ""))
 
 
+def evidence_graph_signature(pool: list[dict[str, Any]], topic: str = "") -> str:
+    """图谱输入指纹：保留文献顺序，覆盖题名、引用关系和研究主题。"""
+    import hashlib
+
+    payload = json.dumps({"pool": pool, "topic": topic}, ensure_ascii=False,
+                         sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _valid_evidence_graph(ctx: TaskContext) -> dict[str, Any] | None:
+    """只读取仍对应当前文献池、且图片文件可用的缓存。"""
+    pool = (ctx.artifacts.get("lit_filter") or {}).get("pool") or []
+    cached = ctx.artifacts.get("_evidence_graph")
+    if not pool or not isinstance(cached, dict):
+        return None
+    signature = evidence_graph_signature(pool, ctx.params.get("topic", ""))
+    if ctx.artifacts.get("_evidence_graph_signature") != signature:
+        return None
+    image = cached.get("file")
+    if not isinstance(image, str) or not image:
+        return None
+    try:
+        return dict(cached) if Path(image).is_file() else None
+    except (OSError, ValueError):
+        return None
+
+
 def evidence_graph(task_id: str, force: bool = False) -> dict[str, Any]:
     """证据图谱：文献池内部引用网络 PNG + 统计。
 
     结果缓存在任务 artifacts（键 _evidence_graph），文献池不变时直接复用；
     force=True 强制重渲染。
     """
+    from copy import deepcopy
+
     from .agents import graph as graph_mod
     ctx = _tasks[task_id]
-    cached = ctx.artifacts.get("_evidence_graph")
-    if cached and not force:
-        return dict(cached, cached=True)
-    pool = ctx.artifacts.get("lit_filter", {}).get("pool", [])
+    pool, topic = deepcopy(((ctx.artifacts.get("lit_filter") or {}).get("pool") or [],
+                            ctx.params.get("topic", "")))
     if not pool:
+        cache_keys = ("_evidence_graph", "_evidence_graph_signature")
+        if any(key in ctx.artifacts for key in cache_keys):
+            for key in cache_keys:
+                ctx.artifacts.pop(key, None)
+            ctx.save()
         return {"nodes": 0, "edges": 0, "coverage": 0, "isolated": 0,
-                "file": "", "items": []}
-    r = graph_mod.build_evidence_graph(pool, topic=ctx.params.get("topic", ""))
-    ctx.artifacts["_evidence_graph"] = r
-    ctx.save()
+                "file": "", "items": [], "pool_total": 0}
+    if not force:
+        cached = _valid_evidence_graph(ctx)
+        if cached is not None:
+            return dict(cached, cached=True)
+    signature = evidence_graph_signature(pool, topic)
+    r = graph_mod.build_evidence_graph(pool, topic=topic)
+    current_pool = (ctx.artifacts.get("lit_filter") or {}).get("pool") or []
+    # 后台渲染期间可继续人工筛选；旧快照不能覆盖当前文献池的缓存。
+    if signature == evidence_graph_signature(current_pool, ctx.params.get("topic", "")):
+        ctx.artifacts["_evidence_graph"] = r
+        ctx.artifacts["_evidence_graph_signature"] = signature
+        ctx.save()
     return r
 
 
@@ -437,11 +479,20 @@ def export_artifacts(task_id: str, out_dir: str | Path) -> list[str]:
 
     AI 参与生成的文件带 AIGC 显式标识（aigc.py），manifest 逐文件说明参与度。
     """
+    from .artifact_export import export_files
+    return export_files(Path(out_dir), lambda staging: _write_export_artifacts(task_id, staging))
+
+
+def _write_export_artifacts(task_id: str, out: Path) -> list[str]:
+    """Render a detached copy of task materials into a private staging directory."""
+    from copy import deepcopy
+    from types import SimpleNamespace
+
     from . import aigc
-    ctx = _tasks[task_id]
+    live = _tasks[task_id]
+    params, artifacts, events = deepcopy((live.params, live.artifacts, live.events))
+    ctx = SimpleNamespace(params=params, artifacts=artifacts, events=events)
     art = ctx.artifacts
-    out = Path(out_dir)
-    out.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
     topic = ctx.params.get("topic", "")
 
@@ -486,7 +537,7 @@ def export_artifacts(task_id: str, out_dir: str | Path) -> list[str]:
         written.append(str(p))
 
     # 证据图谱 PNG：随包导出已生成的确定性布局图像。
-    graph_meta = art.get("_evidence_graph") or {}
+    graph_meta = _valid_evidence_graph(ctx) or {}
     graph_src = graph_meta.get("file")
     if graph_src and Path(graph_src).exists():
         import shutil
@@ -494,9 +545,9 @@ def export_artifacts(task_id: str, out_dir: str | Path) -> list[str]:
         shutil.copyfile(graph_src, gdst)
         written.append(str(gdst))
 
-    # Same read-only ledger is available through service.research_audit and exports.
-    from .research_analysis import render_report
-    audit = research_audit(task_id)
+    # The ledger and text files describe the same detached materials.
+    from .research_analysis import analyze_artifacts, render_report
+    audit = analyze_artifacts(art, topic=topic)
     p = out / "科研证据审计.md"
     p.write_text(render_report(audit), encoding="utf-8")
     written.append(str(p))

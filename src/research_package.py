@@ -35,6 +35,7 @@ _ARTIFACT_LABELS = {
     "extract": "证据抽取",
     "digest": "摘要稿",
     "outline": "综述框架",
+    "review_frame": "综述框架",
     "citation": "引用格式",
     "review": "证据审计",
 }
@@ -87,7 +88,7 @@ def _deficits(ctx: Any, art: dict[str, Any]) -> list[dict[str, str]]:
         deficits.append({"code": "no_digest", "message": "没有摘要稿，综述缺初筛依据。"})
     if not art.get("review_frame", {}).get("outline_md"):
         deficits.append({"code": "no_outline", "message": "没有综述框架，结论缺组织结构。"})
-    if not art.get("citations"):
+    if not (art.get("citation") or {}).get("entries"):
         deficits.append({"code": "no_citations", "message": "没有引用条目，格式未受规则引擎约束。"})
     failed = [node for node, info in (ctx.node_durations or {}).items()
               if isinstance(info, dict) and info.get("status") == "failed"]
@@ -158,7 +159,7 @@ def build_manifest(ctx: Any) -> dict[str, Any]:
         "evidence": {
             "audit_available": bool(art.get("review")),
             "pool_size": len(art.get("lit_filter", {}).get("pool", [])),
-            "citations": len(art.get("citations") or []),
+            "citations": len((art.get("citation") or {}).get("entries") or []),
         },
         "deficits": _deficits(ctx, art),
         "boundary": "本包只整理已记录状态：不重跑实验、不验证科学真伪、不补全缺失材料；"

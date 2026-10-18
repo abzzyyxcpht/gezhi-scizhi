@@ -69,6 +69,23 @@ class ResearchPackageTest(unittest.TestCase):
         self.assertNotIn("no_pool", codes)
         self.assertNotIn("no_digest", codes)
 
+    def test_manifest_uses_workflow_citation_entries_and_lists_review_frame(self):
+        self.ctx.artifacts["review_frame"] = {"outline_md": "综述框架"}
+        self.ctx.artifacts["citation"] = {"entries": [{"text": "[1] Fixture"}]}
+        manifest = build_manifest(self.ctx)
+        self.assertEqual(manifest["evidence"]["citations"], 1)
+        self.assertNotIn("no_citations", {item["code"] for item in manifest["deficits"]})
+        entries = {item["key"]: item["label"] for item in manifest["data"]["artifacts"]}
+        self.assertEqual(entries["review_frame"], "综述框架")
+        self.assertEqual(entries["citation"], "引用格式")
+
+    def test_stale_flat_citations_do_not_override_workflow_entries(self):
+        self.ctx.artifacts["citation"] = {"entries": []}
+        self.ctx.artifacts["citations"] = [{"text": "outdated flattened view"}]
+        manifest = build_manifest(self.ctx)
+        self.assertEqual(manifest["evidence"]["citations"], 0)
+        self.assertIn("no_citations", {item["code"] for item in manifest["deficits"]})
+
     def test_package_zip_contains_manifest_artifacts_workflows_and_readme(self):
         result = build_package("pkgtest1", self.tmp)
         zip_path = Path(result["zip_path"])
