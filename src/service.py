@@ -160,11 +160,10 @@ def restore_tasks() -> None:
             with _lock:
                 if f.stem in _tasks:
                     continue
-            ctx = TaskContext.load(f.stem)
-            if ctx.status in {"running", "pending"}:
-                ctx.status = "paused"
-                ctx.emit("workflow", message="进程已重启，断点已恢复；请手动续跑", status="paused")
-            with _lock:
+                ctx = TaskContext.load(f.stem)
+                if ctx.status in {"running", "pending"}:
+                    ctx.status = "paused"
+                    ctx.emit("workflow", message="进程已重启，断点已恢复；请手动续跑", status="paused")
                 _tasks.setdefault(ctx.task_id, ctx)
         except Exception:  # noqa: BLE001
             continue
@@ -330,14 +329,17 @@ def restart(task_id: str) -> str:
 def delete_task(task_id: str) -> bool:
     """删除任务：移出内存并删除断点存档文件；运行中的任务先取消再删。"""
     with _lock:
-        ctx = _tasks.pop(task_id, None)
-    if ctx is None:
-        return False
-    ctx.request_cancel()
-    ctx._deleted = True  # 运行线程收尾时不再写回存档
-    f = CHECKPOINT_DIR / f"{task_id}.json"
-    f.unlink(missing_ok=True)
-    return True
+        ctx = _tasks.get(task_id)
+        if ctx is None:
+            return False
+        ctx.request_cancel()
+        with ctx._save_lock:
+            f = CHECKPOINT_DIR / f"{task_id}.json"
+            f.unlink(missing_ok=True)
+            # 删除成功后再移出注册表；文件占用等错误允许用户重试。
+            ctx._deleted = True
+            _tasks.pop(task_id)
+        return True
 
 
 def resume(task_id: str) -> None:

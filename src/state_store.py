@@ -5,14 +5,14 @@ import os
 from pathlib import Path
 import time
 import uuid
-from typing import Any
+from typing import Any, Callable
 
 
-def write_json(path: Path, value: Any) -> None:
+def write_json(path: Path, value: Any, *, default: Callable[[Any], Any] | None = str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
-        temporary.write_text(json.dumps(value, ensure_ascii=False, default=str), encoding="utf-8")
+        temporary.write_text(json.dumps(value, ensure_ascii=False, default=default), encoding="utf-8")
         for attempt in range(6):
             try:
                 os.replace(temporary, path)

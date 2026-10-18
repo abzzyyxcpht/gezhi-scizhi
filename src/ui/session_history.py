@@ -5,7 +5,8 @@ import flet as ft
 
 from ..bridge import handle
 from ..workbench import redact
-from .theme import palette as p, style_inputs
+from .markdown_view import MarkdownView
+from .theme import motion_duration, palette as p, radius, style_inputs, ui_size
 
 
 class SessionHistoryDialog:
@@ -100,9 +101,25 @@ class SessionHistoryDialog:
         self.page.run_thread(work)
 
     def show_message(self, message_id, generation):
-        content, label = ft.Markdown('', selectable=True, extension_set=ft.MarkdownExtensionSet.GITHUB_WEB), ft.Text('读取消息…', size=11)
+        content = MarkdownView('', selectable=True, extension_set=ft.MarkdownExtensionSet.GITHUB_WEB)
+        reader = ft.Column([content], expand=True, scroll=ft.ScrollMode.AUTO, visible=False,
+                           horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+        label = ft.Text('', size=ui_size('sm'), color=p.TEXT_2, visible=False)
+        notice = ft.Text('', size=ui_size('sm'), color=p.TEXT_2, max_lines=3, visible=False)
         previous, following = ft.TextButton('上一段'), ft.TextButton('下一段')
         retry = ft.TextButton('重试读取', visible=False)
+        initial_retry = ft.TextButton('重新读取', icon=ft.Icons.REFRESH, visible=False)
+        progress = ft.ProgressRing(width=28, height=28, stroke_width=2.5, color=p.ACCENT)
+        status_icon = ft.Icon(ft.Icons.HOURGLASS_EMPTY, size=28, color=p.TEXT_2, visible=False)
+        status_title = ft.Text('正在读取完整消息', size=ui_size('base'), color=p.TEXT,
+                               weight=ft.FontWeight.W_600, text_align=ft.TextAlign.CENTER)
+        status_detail = ft.Text('长消息按段加载，请稍候。', size=ui_size('sm'), color=p.TEXT_2,
+                                text_align=ft.TextAlign.CENTER, max_lines=4)
+        status = ft.Container(expand=True, padding=24, bgcolor=p.SURFACE_2, border_radius=radius('panel'),
+            alignment=ft.Alignment.CENTER, content=ft.Column(
+                [progress, status_icon, status_title, status_detail, initial_retry], spacing=12,
+                tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER))
+        navigation = ft.Row([previous, following, retry], spacing=8, run_spacing=4, wrap=True, visible=False)
         state = {'offset': 0, 'next': None, 'closed': False, 'sequence': 0, 'request_offset': 0, 'loaded': False}
         def active():
             return not self.closed and not state['closed'] and self.selected() == self.sid
@@ -114,8 +131,19 @@ class SessionHistoryDialog:
             state['sequence'] += 1
             sequence = state['sequence']
             state['request_offset'] = offset
-            previous.disabled = following.disabled = retry.disabled = True
-            label.value = '读取消息…'
+            previous.disabled = following.disabled = retry.disabled = initial_retry.disabled = True
+            retry.visible = initial_retry.visible = False
+            if state['loaded']:
+                notice.value = '正在读取其他段落，当前内容保留。'
+                notice.tooltip = None
+                notice.visible = True
+            else:
+                progress.visible = motion_duration() > 0
+                status_icon.visible = not progress.visible
+                status_icon.icon = ft.Icons.HOURGLASS_EMPTY
+                status_title.value = '正在读取完整消息'
+                status_detail.value = '长消息按段加载，请稍候。'
+                status_detail.tooltip = None
             self.page.update()
             def current():
                 return active() and state['sequence'] == sequence
@@ -132,23 +160,41 @@ class SessionHistoryDialog:
                         raise ValueError('消息身份已变化')
                     content.value = row['content']
                     state.update(offset=offset, next=row['next_offset'], loaded=True)
-                    label.value = f'字符 {offset + 1}–{offset + len(row["content"])} / {row["characters"]}'
+                    label.value = f'字符 {offset + 1 if row["content"] else offset}–{offset + len(row["content"])} / {row["characters"]}'
+                    reader.visible = label.visible = navigation.visible = True
+                    status.visible = notice.visible = False
                     retry.visible = False
                 except Exception as error:  # noqa: BLE001
                     if current():
-                        label.value = str(redact(str(error)))
-                        retry.visible = True
+                        detail = str(redact(str(error))) or '暂时无法读取，请重试。'
+                        if state['loaded']:
+                            notice.value = f'未能读取该段，当前内容已保留。{detail}'
+                            notice.tooltip = notice.value
+                            notice.visible = retry.visible = True
+                        else:
+                            progress.visible = False
+                            status_icon.icon = ft.Icons.CLOUD_OFF_OUTLINED
+                            status_icon.visible = True
+                            status_title.value = '完整消息暂时无法读取'
+                            status_detail.value = detail
+                            status_detail.tooltip = detail
+                            initial_retry.visible = True
                 if current():
                     previous.disabled = not state['loaded'] or state['offset'] == 0
                     following.disabled = not state['loaded'] or state['next'] is None
-                    retry.disabled = False
+                    retry.disabled = initial_retry.disabled = False
                     self.page.update()
             self.page.run_thread(work)
         previous.on_click = lambda e: load_chunk(max(0, state['offset'] - 20000))
         following.on_click = lambda e: load_chunk(state['next']) if state['next'] is not None else None
         retry.on_click = lambda e: load_chunk(state['request_offset'])
-        self.page.show_dialog(ft.AlertDialog(title=ft.Text(f'完整消息 · {message_id}'),
-            content=ft.Container(width=680, height=440, content=ft.Column([content], scroll=ft.ScrollMode.AUTO)),
-            actions=[label, previous, following, retry, ft.TextButton('关闭', on_click=lambda e: (dismiss(), self.page.pop_dialog()))],
-            on_dismiss=dismiss))
+        initial_retry.on_click = retry.on_click
+        dialog = ft.AlertDialog(title=ft.Text(f'完整消息 · {message_id}'),
+            content=ft.Container(width=680, height=440, content=ft.Column(
+                [status, reader, label, notice, navigation], spacing=10, expand=True,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH)),
+            actions=[ft.TextButton('关闭', on_click=lambda e: (dismiss(), self.page.pop_dialog()))],
+            on_dismiss=dismiss)
+        style_inputs(dialog)
+        self.page.show_dialog(dialog)
         load_chunk(0)

@@ -360,8 +360,8 @@ def _handle(req: dict[str, Any]) -> dict[str, Any]:
                     else research_repo.log_text(int(req.get("limit", 10))))
             return _ok(text=text, available=research_repo.git_available())
         if cmd == "shell_exec":
-            # 终端 shell 模式（`!` 前缀）：项目根目录内执行，超时 10s，输出封顶 4000 字符
-            import subprocess
+            # 终端直达命令同样持有进程树，采集预算与显示长度分别封顶。
+            from .shell_execution import run_command
             command = str(req.get("command", "")).strip()
             if not command:
                 return _err("空命令")
@@ -369,15 +369,24 @@ def _handle(req: dict[str, Any]) -> dict[str, Any]:
             banned = ("rm ", "rm -", "sudo", "shutdown", "reboot", "mkfs", "dd if", "format ", "del ", "rd /")
             if any(b in lowered for b in banned):
                 return _err("命令包含安全禁区词，已拒绝执行")
-            try:
-                proc = subprocess.run(command, shell=True, cwd=str(ROOT_DIR), capture_output=True,
-                                      text=True, timeout=10, encoding="utf-8", errors="replace")
-            except subprocess.TimeoutExpired:
-                return _err("命令超时（10s）")
-            except Exception as e:  # noqa: BLE001 —— 执行层错误透传
-                return _err(str(e))
-            out = (proc.stdout or "") + (proc.stderr or "")
-            return _ok(text=out[:4000], code=proc.returncode)
+            result = run_command(command, ROOT_DIR, timeout=10, capture_limit=8192)
+            out = "".join(result["streams"].get(name, {}).get("text", "")
+                          for name in ("stdout", "stderr"))
+            truncated = not result["capture_complete"] or len(out) > 4000
+            if truncated:
+                notice = "\n[输出已截断或不完整，仅显示已捕获的前段。]"
+                out = out[:4000-len(notice)] + notice
+            response = {"text": out, "code": result["exit_code"], "truncated": truncated,
+                        "timed_out": result["timed_out"], "cancelled": result["cancelled"]}
+            if result["error"]:
+                return {**_err(result["error"]), **response}
+            if not result["tree_empty"]:
+                return {**_err("未能确认命令的子进程已全部停止"), **response}
+            if result["timed_out"]:
+                return {**_err("命令超时（10s）"), **response}
+            if result["cancelled"]:
+                return {**_err("命令已取消"), **response}
+            return _ok(**response)
         if cmd == "list":
             return _ok(tasks=service.list_tasks())
         if cmd == "demo_seed":

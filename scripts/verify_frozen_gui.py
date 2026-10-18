@@ -27,6 +27,11 @@ def main():
     args = parser.parse_args()
     if sys.platform != 'win32':
         parser.error('Windows HWND verification only')
+    # Capture physical pixels consistently across Windows display scales.
+    dpi_context = ctypes.windll.user32.SetProcessDpiAwarenessContext
+    dpi_context.argtypes = [wt.HANDLE]
+    dpi_context.restype = wt.BOOL
+    dpi_configured = bool(dpi_context(wt.HANDLE(-4)))
     import psutil
     from PIL import ImageGrab, ImageStat
     exe = args.exe.resolve(strict=True)
@@ -62,6 +67,7 @@ def main():
     children, handle = [], 0
     report = {'ok': False, 'exe': str(exe), 'data_isolated': True, 'uses_bundled_client': True,
               'stage': str(stage), 'launched_pid': proc.pid,
+              'dpi_awareness': 'per_monitor_v2' if dpi_configured else 'unchanged',
               'verification_scope': 'owned_window_capture_only', 'ui_visual_review': 'required'}
     start = time.monotonic()
     try:

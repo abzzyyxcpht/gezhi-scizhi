@@ -18,6 +18,7 @@ from typing import Any, Callable
 import yaml
 
 from ..config import CHECKPOINT_DIR
+from ..state_store import write_json
 
 # 节点动作注册表：action 名 -> 可调用（在 agents 模块中注册）
 ACTIONS: dict[str, Callable[["TaskContext", dict[str, Any]], Any]] = {}
@@ -113,19 +114,19 @@ class TaskContext:
 
     # ---- Checkpoint ----
     def save(self) -> None:
-        if getattr(self, "_deleted", False):
-            return  # 任务已被删除：引擎线程收尾时不再写回存档
-        with self._save_lock:  # 扇出分支并行收尾时串行化写盘，避免存档交错损坏
+        with self._save_lock:
+            if getattr(self, "_deleted", False):
+                return  # 删除与保存共用锁，等待写盘的线程也要重新检查。
             self.created_at = time.strftime("%Y-%m-%d %H:%M")
             path = CHECKPOINT_DIR / f"{self.task_id}.json"
-            path.write_text(json.dumps({
+            write_json(path, {
                 "task_id": self.task_id, "workflow": self.workflow,
                 "params": self.params, "status": self.status,
                 "pointer": self.pointer, "artifacts": self.artifacts,
                 "node_durations": self.node_durations,
                 "created_at": self.created_at,
                 "started_at": self.started_at, "finished_at": self.finished_at,
-            }, ensure_ascii=False, indent=1), encoding="utf-8")
+            }, default=None)
 
     @classmethod
     def load(cls, task_id: str) -> "TaskContext":

@@ -892,15 +892,19 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
 
   // shell 模式：项目根目录内执行，输出封顶 10 行
   async function shell(command) {
-    const r = await bridge.call({ cmd: "shell_exec", command }).catch((e) => ({ ok: false, error: String(e.message || e) }))
-    if (!r?.ok) return { lines: [{ text: `✗ ${r?.error || "执行失败"}`, dim: true }] }
-    const NL = String.fromCharCode(10)
-    const rows = String(r.text || "")
-      .split(NL)
-      .filter(Boolean)
-      .slice(0, 10)
-      .map((t) => ({ text: t, dim: true }))
-    return { lines: [{ text: `$ ${command}`.slice(0, 90), dim: true }, ...(rows.length ? rows : [{ text: "（无输出）", dim: true }]), { text: `exit ${r.code ?? 0}`, dim: true }] }
+    const r = await bridge.call({ cmd: "shell_exec", command }).catch((e) => ({ ok: false, error: String(e?.message || e) }))
+    const rows = String(r?.text || "").split(/\r?\n/).filter(Boolean)
+    const lines = [{ text: `$ ${command}`.slice(0, 90), dim: true },
+      ...rows.slice(0, 10).map((text) => ({ text, dim: true }))]
+    if (!rows.length && r?.ok) lines.push({ text: "（无输出）", dim: true })
+    if (rows.length > 10 || r?.truncated) lines.push({ text: "（输出已截断，以上为已捕获内容的预览）", dim: true })
+    if (!r?.ok) lines.push({ text: `✗ ${r?.error || "执行失败"}`, dim: true })
+    if (Number.isInteger(r?.code) && (r?.ok || r.code !== 0)) {
+      lines.push({ text: `exit ${r.code}`, dim: true })
+    } else if (r?.ok) {
+      lines.push({ text: "退出码未知", dim: true })
+    }
+    return { lines }
   }
 
   // ---- 科研分析面板（数据来自既有 bridge 命令，Python 端零改动）----

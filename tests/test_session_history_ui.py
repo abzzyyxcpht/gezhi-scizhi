@@ -1,9 +1,29 @@
 from types import SimpleNamespace
-from unittest.mock import Mock
+import asyncio
+from unittest.mock import AsyncMock, Mock
 
 import flet as ft
 import pytest
 from src.ui.session_history import SessionHistoryDialog
+from src.ui import theme
+from src.ui.code_preview import CodePreview
+from src.ui.markdown_view import MarkdownView
+
+
+def descendants(control, *, visible_only=False):
+    if visible_only and not control.visible:
+        return
+    yield control
+    for name in ('controls', 'actions'):
+        for child in getattr(control, name, None) or []:
+            yield from descendants(child, visible_only=visible_only)
+    child = getattr(control, 'content', None)
+    if isinstance(child, ft.Control):
+        yield from descendants(child, visible_only=visible_only)
+
+
+def message_status(dialog):
+    return [control.value for control in descendants(dialog, visible_only=True) if isinstance(control, ft.Text)]
 
 
 def fixture():
@@ -94,8 +114,8 @@ def message_fixture(replies):
     view.api = Mock(side_effect=replies)
     view.show_message(7, 'generation')
     dialog = view.page.show_dialog.call_args.args[0]
-    content = dialog.content.content.controls[0]
-    buttons = {control.content: control for control in dialog.actions if isinstance(control, ft.TextButton)}
+    content = next(control for control in descendants(dialog) if isinstance(control, (MarkdownView, ft.Markdown)))
+    buttons = {control.content: control for control in descendants(dialog) if isinstance(control, ft.TextButton)}
     return view, work, selected, dialog, content, buttons
 
 
@@ -103,10 +123,13 @@ def message_fixture(replies):
 def test_long_message_failed_next_chunk_preserves_text_and_retries_failed_offset(failure):
     view, work, _, dialog, content, buttons = message_fixture([chunk(), failure, chunk(20000)])
     work.pop(0)()
+    position = next(text for text in message_status(dialog) if text.startswith('字符 '))
     buttons['下一段'].on_click(None)
     assert buttons['上一段'].disabled and buttons['下一段'].disabled
     work.pop(0)()
     assert content.value == 'chunk 0'
+    assert position in message_status(dialog)
+    assert any('当前内容已保留' in text for text in message_status(dialog))
     assert buttons['上一段'].disabled and not buttons['下一段'].disabled
     retry = buttons['重试读取']
     assert retry.visible and not retry.disabled
@@ -124,7 +147,7 @@ def test_long_message_initial_failure_can_be_retried_without_reopening():
     work.pop(0)()
     assert content.value == ''
     assert buttons['上一段'].disabled and buttons['下一段'].disabled
-    buttons['重试读取'].on_click(None)
+    buttons['重新读取'].on_click(None)
     work.pop(0)()
     assert content.value == 'chunk 0'
     assert view.api.call_args.args[0]['offset'] == 0
@@ -141,10 +164,10 @@ def test_long_message_late_failure_does_not_change_an_inactive_view(change):
         dialog.on_dismiss(None)
     else:
         view.dismiss()
-    label = dialog.actions[0].value
+    label = message_status(dialog)
     updates = view.page.update.call_count
     work.pop(0)()
-    assert dialog.actions[0].value == label
+    assert message_status(dialog) == label
     assert content.value == 'chunk 0'
     assert view.page.update.call_count == updates
 
@@ -157,8 +180,67 @@ def test_long_message_older_failure_cannot_replace_newer_success():
     old_request = work.pop(0)
     buttons['下一段'].on_click(None)
     work.pop(0)()
-    label = dialog.actions[0].value
+    label = message_status(dialog)
     old_request()
     assert content.value == 'chunk 20000'
-    assert dialog.actions[0].value == label
+    assert message_status(dialog) == label
     assert not buttons['上一段'].disabled and not buttons['下一段'].disabled
+
+
+def test_long_message_initial_status_explains_loading_failure_and_retry():
+    view, work, _, dialog, _, buttons = message_fixture([OSError('连接暂时中断'), chunk()])
+    visible = list(descendants(dialog.content, visible_only=True))
+    assert any(isinstance(control, ft.Text) and control.value == '正在读取完整消息' for control in visible)
+    work.pop(0)()
+    assert '完整消息暂时无法读取' in message_status(dialog)
+    assert '连接暂时中断' in message_status(dialog)
+    buttons['重新读取'].on_click(None)
+    assert '正在读取完整消息' in message_status(dialog)
+    work.pop(0)()
+    assert '完整消息暂时无法读取' not in message_status(dialog)
+    assert view.api.call_args.args[0]['offset'] == 0
+
+
+@pytest.mark.parametrize('change', ['session', 'dismiss', 'parent'])
+def test_long_message_initial_late_success_does_not_replace_inactive_loading_view(change):
+    view, work, selected, dialog, content, _ = message_fixture([chunk()])
+    before = message_status(dialog)
+    updates = view.page.update.call_count
+    if change == 'session':
+        selected['sid'] = 'two'
+    elif change == 'dismiss':
+        dialog.on_dismiss(None)
+    else:
+        view.dismiss()
+    work.pop(0)()
+    assert content.value == ''
+    assert message_status(dialog) == before
+    assert view.page.update.call_count == updates
+
+
+def test_long_message_code_uses_active_preferences_and_copies_original_source():
+    old_options, old_canonical, old_dark = dict(theme._preferences), theme._canonical, theme.palette.dark
+    try:
+        theme.palette.set_dark(True)
+        theme.configure_typography({'code_font_size': 17, 'appearance_code_font': 'consolas',
+                                    'code_show_line_numbers': False, 'code_wrap_long_lines': False})
+        source = 'result = 42\nprint(result)\n'
+        reply = chunk()
+        reply['message']['content'] = f'## 实验结果\n\n```python\n{source}```\n'
+        view, work, _, dialog, content, _ = message_fixture([reply])
+        work.pop(0)()
+        assert isinstance(content, MarkdownView)
+        code = next(control for control in descendants(dialog) if isinstance(control, CodePreview))
+        assert code.code_lines[0].size == 17
+        assert code.code_lines[0].font_family == 'Consolas'
+        assert code.code_lines[0].no_wrap
+        assert not code.rows[0].controls[0].visible
+        assert code._preview_dark is True
+        view.page.clipboard = SimpleNamespace(set=AsyncMock())
+        asyncio.run(code.copy_button.on_click(SimpleNamespace(page=view.page)))
+        view.page.clipboard.set.assert_awaited_once_with(source)
+        assert code.copy_button.content == '已复制'
+    finally:
+        theme.configure_typography(old_options)
+        theme._canonical = old_canonical
+        theme.palette.set_dark(old_dark)
