@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from src.orchestrator.engine import TaskContext, action
+from src.orchestrator.engine import TaskContext
 
 
 def _key(w: dict[str, Any], i: int) -> str:
@@ -19,7 +19,7 @@ def _key(w: dict[str, Any], i: int) -> str:
     return base + (chr(97 + i % 26) if i > 25 else "")
 
 
-def _bibtex(w: dict[str, Any], i: int) -> str:
+def _bibtex(w: dict[str, Any], i: int, *, key: str | None = None) -> str:
     fields = [
         f"  title = {{{w.get('title') or 'Untitled'}}},",
         f"  author = {{{' and '.join(w.get('authors') or []) or 'Unknown'}}},",
@@ -37,11 +37,36 @@ def _bibtex(w: dict[str, Any], i: int) -> str:
         fields.append(f"  doi = {{{w['doi']}}},")
     if w.get("url"):
         fields.append(f"  url = {{{w['url']}}},")
-    return f"@article{{{_key(w, i)},\n" + "\n".join(fields) + "\n}"
+    return f"@article{{{key if key is not None else _key(w, i)},\n" + "\n".join(fields) + "\n}"
+
+
+def _suffix(number: int) -> str:
+    suffix = ""
+    while number:
+        number, digit = divmod(number - 1, 26)
+        suffix = chr(97 + digit) + suffix
+    return suffix
 
 
 def _render(pool: list[dict[str, Any]], limit: int) -> str:
-    return "\n\n".join(_bibtex(w, i) for i, w in enumerate(pool[:limit], 0))
+    keys = [_key(work, i) for i, work in enumerate(pool)]
+    # 基于完整文献池保留原始键，使导出数量变化时已有引用保持稳定。
+    reserved = set(keys)
+    used: set[str] = set()
+    suffix_counts: dict[str, int] = {}
+    unique_keys: list[str] = []
+    for base in keys:
+        key = base
+        if key in used:
+            number = suffix_counts.get(base, 0)
+            while key in used or key in reserved:
+                number += 1
+                key = base + _suffix(number)
+            suffix_counts[base] = number
+        used.add(key)
+        unique_keys.append(key)
+    return "\n\n".join(_bibtex(work, i, key=key)
+                       for i, (work, key) in enumerate(zip(pool[:limit], unique_keys[:limit])))
 
 
 def run(args: str, ctx: TaskContext | None) -> str:

@@ -95,7 +95,7 @@ class TaskProgressTest(unittest.TestCase):
         # resume() advances the approval pointer; run synchronously in this fixture.
         with mock.patch.object(self.service, "_ensure_agents"), \
                 mock.patch.object(self.service.threading, "Thread") as thread:
-            thread.return_value.start.side_effect = lambda: engine.run(self.ctx)
+            thread.return_value.start.side_effect = lambda: thread.call_args.kwargs['target']()
             self.service.resume(self.ctx.task_id)
         self.assertEqual(self.ctx.status, "done")
         self.assertNotIn("human_review", self.ctx.artifacts)
@@ -125,7 +125,7 @@ class TaskProgressTest(unittest.TestCase):
         with mock.patch.dict(engine.ACTIONS, {"extract_pool": pause_in_extract}), \
                 mock.patch.object(self.service, "_ensure_agents"), \
                 mock.patch.object(self.service.threading, "Thread") as thread:
-            thread.return_value.start.side_effect = lambda: engine.run(self.ctx)
+            thread.return_value.start.side_effect = lambda: thread.call_args.kwargs['target']()
             self.service.resume(self.ctx.task_id)
         self.assertEqual(self.ctx.pointer, "extract")
         self.assertEqual(self.ctx.status, "paused")

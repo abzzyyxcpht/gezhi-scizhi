@@ -200,8 +200,53 @@ def create_task(topic: str, keywords: str = "", year_from: int | None = None,
     with _lock:
         _tasks[task_id] = ctx
     ctx.save()
-    threading.Thread(target=run, args=(ctx,), daemon=True).start()
+    _start_task_worker(ctx)
     return task_id
+
+
+def _start_task_worker(ctx: TaskContext, *, operation: str = "start") -> None:
+    """Claim execution before changing its cursor or starting a background thread."""
+    if not ctx._worker_lock.acquire(blocking=False):
+        if operation == "resume":
+            return  # Repeated confirmation while its worker is active is harmless.
+        raise ValueError("任务正在运行，请等待暂停或取消完成后再重跑")
+    worker_started = False
+    try:
+        approval = None
+        if operation == "resume":
+            if ctx.status not in {"paused", "waiting_human"}:
+                raise ValueError("仅暂停或等待人工确认的任务可以续跑；已结束任务请使用重跑")
+            if ctx.status == "waiting_human":
+                nodes = {n["id"]: n for n in load_workflow(ctx.workflow)["nodes"]}
+                approval = nodes.get(ctx.pointer)
+                if not approval or approval.get("type") != "human_approval":
+                    raise ValueError("人工确认节点与断点不一致；未跳过节点，请核对工作流后重试")
+        elif operation == "restart":
+            if ctx.status == "running":
+                raise ValueError("任务正在运行，请先暂停或取消再重跑")
+            topic = ctx.params.get("topic", "")
+            ctx.reset()
+            ctx.emit("workflow", message=f"重跑任务：{topic}", status="running")
+            ctx.save()
+
+        def work():
+            nonlocal worker_started
+            worker_started = True
+            try:
+                if operation == "resume" and not ctx.cancel_requested:
+                    if approval is not None:
+                        ctx.pointer = approval.get("next")
+                        ctx.emit("human", message="人工已确认，继续执行")
+                    ctx.clear_pause()
+                run(ctx, resume=operation == "resume")
+            finally:
+                ctx._worker_lock.release()
+
+        threading.Thread(target=work, daemon=True).start()
+    except Exception:
+        if not worker_started:
+            ctx._worker_lock.release()
+        raise
 
 
 def get(task_id: str) -> TaskContext | None:
@@ -277,14 +322,8 @@ def restart(task_id: str) -> str:
     仅在任务不在运行中时允许（运行中请先暂停或取消）。
     """
     ctx = _tasks[task_id]
-    if ctx.status == "running":
-        raise ValueError("任务正在运行，请先暂停或取消再重跑")
     _ensure_agents()
-    topic = ctx.params.get("topic", "")
-    ctx.reset()
-    ctx.emit("workflow", message=f"重跑任务：{topic}", status="running")
-    ctx.save()
-    threading.Thread(target=run, args=(ctx,), daemon=True).start()
+    _start_task_worker(ctx, operation="restart")
     return task_id
 
 
@@ -305,13 +344,7 @@ def resume(task_id: str) -> None:
     """续跑：人工审批节点视为已确认，指针推进到下一节点。"""
     _ensure_agents()
     ctx = _tasks[task_id]
-    if ctx.status == "waiting_human" and ctx.pointer:
-        nodes = {n["id"]: n for n in load_workflow(ctx.workflow)["nodes"]}
-        if ctx.pointer in nodes:
-            ctx.pointer = nodes[ctx.pointer].get("next")
-        ctx.emit("human", message="人工已确认，继续执行")
-    ctx.clear_pause()
-    threading.Thread(target=run, args=(ctx,), daemon=True).start()
+    _start_task_worker(ctx, operation="resume")
 
 
 def drop_works(task_id: str, drop_ids: list[str]) -> int:

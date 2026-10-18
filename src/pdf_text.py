@@ -64,10 +64,11 @@ def _reader_extract(data: bytes) -> tuple[str, int, dict[str, Any]]:
             reader = reader_cls(io.BytesIO(data))
             if getattr(reader, "is_encrypted", False):
                 try:
-                    reader.decrypt("")
+                    decrypted = reader.decrypt("")
                 except Exception as exc:
                     raise ValueError("PDF 已加密，无法提取文本") from exc
-                if getattr(reader, "is_encrypted", False):
+                # is_encrypted 描述源文件，成功解密后仍可能为真。
+                if not decrypted:
                     raise ValueError("PDF 已加密，无法提取文本")
             pages: list[str] = []
             for page in reader.pages:

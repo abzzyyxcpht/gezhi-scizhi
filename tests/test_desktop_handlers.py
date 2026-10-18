@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import inspect
 import asyncio
+import sys
 import unittest
 from unittest import mock
 
@@ -102,6 +103,41 @@ class DesktopHandlerTest(unittest.TestCase):
         roots = [c.args[0] for c in page.add.call_args_list if c.args]
         roots += list(page.controls or [])
         return page, roots
+
+    def test_expired_resume_buttons_show_the_service_error(self):
+        ui = {}
+        previous_profile = sys.getprofile()
+
+        def capture(frame, kind, arg):
+            if kind == 'return' and frame.f_code is desktop.main.__code__:
+                ui.update(frame.f_locals)
+
+        with mock.patch.object(app_settings, 'save'), \
+                mock.patch('src.bridge._runtimes', {}), \
+                mock.patch('src.agent_runtime.AgentRuntime', return_value=fake_runtime()):
+            try:
+                sys.setprofile(capture)
+                page, _ = self._build()
+            finally:
+                sys.setprofile(previous_profile)
+
+        ui['state']['task_id'] = self._seeded[0]
+        message = '仅暂停或等待人工确认的任务可以续跑；已结束任务请使用重跑'
+        for button in (ui['btn_resume'], ui['hitl_bar'].content.controls[-1]):
+            with self.subTest(button=button.content):
+                page.show_dialog.reset_mock()
+                with mock.patch.object(service, 'resume', side_effect=ValueError(message)) as resume:
+                    button.on_click(None)
+                resume.assert_called_once_with(self._seeded[0])
+                notice = page.show_dialog.call_args.args[0]
+                self.assertIsInstance(notice, desktop.ft.SnackBar)
+                self.assertEqual(message, notice.content.value)
+                self.assertEqual(desktop.palette.DANGER, notice.bgcolor)
+
+        ui['state']['task_id'] = None
+        with mock.patch.object(service, 'resume') as resume:
+            ui['btn_resume'].on_click(None)
+        resume.assert_not_called()
 
     def test_every_page_handler_runs_without_error(self):
         with mock.patch.object(app_settings, "save"), \

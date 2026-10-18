@@ -132,3 +132,57 @@ try {
   assert.equal(currentRemote.controllers.size, 0);
 } finally { currentRemote.close(); }
 console.log('Remote bridge rejects stale fetch/JSON results and hides the captured request token');
+
+// Switching to a remote host retires outstanding local UI requests, including
+// work queued before the local handshake. No unsent local command may run later.
+for (const ready of [false, true]) {
+  const local = engine();
+  const switching = new Bridge({ remoteUrl: '', spawn: () => local,
+    fetch: async () => ({ ok: true, json: async () => ({ ok: true, value: 'remote' }) }) });
+  let firstResult, queuedResult;
+  try {
+    if (ready) local.reply({ ready: true });
+    const first = switching.call({ cmd: 'local-status' }).then(
+      value => { firstResult = { value }; }, error => { firstResult = { error }; });
+    const queued = switching.call({ cmd: 'local-write' }).then(
+      value => { queuedResult = { value }; }, error => { queuedResult = { error }; });
+    switching.connect('http://remote.invalid', 'fixture-token');
+    await pause(0);
+    assert.match(firstResult?.error?.message || '', /切换/, 'retire local request immediately');
+    assert.match(queuedResult?.error?.message || '', /切换/, 'discard local command before it is sent');
+    await Promise.all([first, queued]);
+    if (!ready) local.reply({ ready: true });
+    assert.equal(local.requests.length, ready ? 1 : 0, 'remote mode never flushes queued local commands');
+    assert.equal((await switching.call({ cmd: 'list' })).value, 'remote');
+    switching.disconnect();
+    const fresh = switching.call({ cmd: 'fresh-local' });
+    if (ready) local.reply({ ok: true, value: 'retired-local' });
+    assert.equal(local.requests.at(-1).cmd, 'fresh-local');
+    local.reply({ ok: true, value: 'fresh-local' });
+    assert.equal((await fresh).value, 'fresh-local', 'late legacy reply cannot settle a fresh request');
+    assert.equal(switching.pending.size, 0);
+  } finally { switching.close(); }
+}
+
+// Correlated local replies cannot escape into the remote workspace either.
+const correlated = engine();
+const switched = new Bridge({ remoteUrl: '', spawn: () => correlated });
+try {
+  correlated.reply({ ready: true });
+  const handshake = switched.call({ cmd: 'handshake' });
+  correlated.reply({ ok: true, request_id: correlated.requests[0].request_id });
+  await handshake;
+  let staleResult;
+  const stale = switched.call({ cmd: 'local-session' }).then(
+    value => { staleResult = { value }; }, error => { staleResult = { error }; });
+  const staleId = correlated.requests.at(-1).request_id;
+  switched.connect('http://remote.invalid', 'fixture-token');
+  correlated.reply({ ok: true, request_id: staleId, value: 'old-local-session' });
+  await stale;
+  assert.match(staleResult?.error?.message || '', /切换/);
+  switched.disconnect();
+  const fresh = switched.call({ cmd: 'fresh' });
+  correlated.reply({ ok: true, request_id: correlated.requests.at(-1).request_id, value: 'fresh' });
+  assert.equal((await fresh).value, 'fresh');
+} finally { switched.close(); }
+console.log('Local-to-remote switching retires pending work and preserves reply alignment');

@@ -56,10 +56,9 @@ class SessionHistoryDialog:
         query = (self.query.value or '').strip()
         if self.current and query != self.current['query']:
             search, page = True, None
-        if search:
-            self.snapshot = None
+        snapshot = None if search else self.snapshot
         request = {'cmd': 'session_history', 'session_id': self.sid, 'query': query, 'page_size': 40,
-                   **({'page': page} if page else {}), **({'snapshot': self.snapshot} if self.snapshot else {})}
+                   **({'page': page} if page else {}), **({'snapshot': snapshot} if snapshot else {})}
         self.previous.disabled = self.following.disabled = True
         self.label.value = '读取历史…首次建立索引后，后续按需分页。'
         self.page.update()
@@ -95,24 +94,36 @@ class SessionHistoryDialog:
             except Exception as error:  # noqa: BLE001 — preserve visible history, never invent an empty result
                 if not self.closed and sequence == self.sequence and self.selected() == self.sid:
                     self.label.value = str(redact(str(error)))
+                    self.previous.disabled = not self.current or self.current['page'] == 1
+                    self.following.disabled = not self.current or self.current['page'] == self.current['pages']
                     self.page.update()
         self.page.run_thread(work)
 
     def show_message(self, message_id, generation):
         content, label = ft.Markdown('', selectable=True, extension_set=ft.MarkdownExtensionSet.GITHUB_WEB), ft.Text('读取消息…', size=11)
         previous, following = ft.TextButton('上一段'), ft.TextButton('下一段')
-        state = {'offset': 0, 'next': None, 'closed': False, 'sequence': 0}
+        retry = ft.TextButton('重试读取', visible=False)
+        state = {'offset': 0, 'next': None, 'closed': False, 'sequence': 0, 'request_offset': 0, 'loaded': False}
+        def active():
+            return not self.closed and not state['closed'] and self.selected() == self.sid
         def dismiss(e=None):
             state['closed'] = True
         def load_chunk(offset):
+            if not active():
+                return
             state['sequence'] += 1
             sequence = state['sequence']
-            previous.disabled = following.disabled = True
+            state['request_offset'] = offset
+            previous.disabled = following.disabled = retry.disabled = True
+            label.value = '读取消息…'
+            self.page.update()
+            def current():
+                return active() and state['sequence'] == sequence
             def work():
                 try:
                     reply = self.api({'cmd': 'session_history_message', 'session_id': self.sid, 'message_id': message_id,
                         'generation': generation, 'offset': offset, 'limit': 20000})
-                    if state['closed'] or state['sequence'] != sequence or self.selected() != self.sid:
+                    if not current():
                         return
                     if reply.get('ok') is not True:
                         raise ValueError(reply.get('error') or '消息读取失败')
@@ -120,19 +131,24 @@ class SessionHistoryDialog:
                     if row['session_id'] != self.sid or row['generation'] != generation or row['message_id'] != message_id:
                         raise ValueError('消息身份已变化')
                     content.value = row['content']
-                    state.update(offset=offset, next=row['next_offset'])
+                    state.update(offset=offset, next=row['next_offset'], loaded=True)
                     label.value = f'字符 {offset + 1}–{offset + len(row["content"])} / {row["characters"]}'
-                    previous.disabled, following.disabled = offset == 0, row['next_offset'] is None
+                    retry.visible = False
                 except Exception as error:  # noqa: BLE001
-                    if not state['closed'] and state['sequence'] == sequence:
+                    if current():
                         label.value = str(redact(str(error)))
-                if not state['closed'] and state['sequence'] == sequence:
+                        retry.visible = True
+                if current():
+                    previous.disabled = not state['loaded'] or state['offset'] == 0
+                    following.disabled = not state['loaded'] or state['next'] is None
+                    retry.disabled = False
                     self.page.update()
             self.page.run_thread(work)
         previous.on_click = lambda e: load_chunk(max(0, state['offset'] - 20000))
         following.on_click = lambda e: load_chunk(state['next']) if state['next'] is not None else None
+        retry.on_click = lambda e: load_chunk(state['request_offset'])
         self.page.show_dialog(ft.AlertDialog(title=ft.Text(f'完整消息 · {message_id}'),
             content=ft.Container(width=680, height=440, content=ft.Column([content], scroll=ft.ScrollMode.AUTO)),
-            actions=[label, previous, following, ft.TextButton('关闭', on_click=lambda e: (dismiss(), self.page.pop_dialog()))],
+            actions=[label, previous, following, retry, ft.TextButton('关闭', on_click=lambda e: (dismiss(), self.page.pop_dialog()))],
             on_dismiss=dismiss))
         load_chunk(0)

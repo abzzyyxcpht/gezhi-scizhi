@@ -513,6 +513,15 @@ def main(page: ft.Page) -> None:
             page.show_dialog(ft.SnackBar(ft.Text("已请求取消（将在当前节点结束）"),
                                          bgcolor=palette.INFO))
 
+    def do_resume(e) -> None:
+        if not state["task_id"]:
+            return
+        try:
+            service.resume(state["task_id"])
+        except Exception as ex:  # noqa: BLE001
+            page.show_dialog(ft.SnackBar(ft.Text(str(ex), max_lines=3,
+                                                 overflow=ft.TextOverflow.ELLIPSIS), bgcolor=palette.DANGER))
+
     def do_restart(e) -> None:
         if not state["task_id"]:
             return
@@ -527,7 +536,7 @@ def main(page: ft.Page) -> None:
         page.show_dialog(ft.SnackBar(ft.Text("已从头重跑任务"), bgcolor=palette.INFO))
 
     btn_pause.on_click = lambda e: (service.pause(state["task_id"]) if state["task_id"] else None)
-    btn_resume.on_click = lambda e: (service.resume(state["task_id"]) if state["task_id"] else None)
+    btn_resume.on_click = do_resume
     btn_cancel.on_click = do_cancel
     btn_restart.on_click = do_restart
 
@@ -574,8 +583,7 @@ def main(page: ft.Page) -> None:
                           style=ft.ButtonStyle(color=palette.TEXT_2)),
             ft.FilledButton(
                 "确认放行", icon=ft.Icons.PLAY_ARROW,
-                on_click=lambda e: (
-                    service.resume(state["task_id"]) if state["task_id"] else None),
+                on_click=do_resume,
                 style=ft.ButtonStyle(bgcolor=palette.SUCCESS, color=palette.BG)),
         ], spacing=10, wrap=True))
     # ---------- 看板页签：任务卡片网格 + 时间账横向条形图 ----------

@@ -53,6 +53,7 @@ class TaskContext:
         self._subscribers: list[Any] = []
         self._lock = threading.Lock()
         self._save_lock = threading.Lock()  # 并发扇出时防止多线程交错写存档
+        self._worker_lock = threading.Lock()  # 非阻塞执行所有权；取消不等待此锁
         self._pause_flag = threading.Event()   # set = 请求暂停
         self._cancel_flag = threading.Event()  # set = 请求取消（硬中断）
 
@@ -329,11 +330,20 @@ def _run_fanout(ctx: TaskContext, nodes: dict[str, dict[str, Any]],
                  message="分支全部完成，工作流结束", status="running")
 
 
-def run(ctx: TaskContext) -> None:
-    """执行工作流主循环。支持从 ctx.pointer 断点续跑。"""
+def _finish_cancelled(ctx: TaskContext) -> None:
+    ctx.status = "cancelled"
+    ctx.finished_at = time.time()
+    ctx.emit("workflow", message="任务已取消，产物与断点保留备查", status="cancelled")
+    ctx.save()
+
+
+def run(ctx: TaskContext, *, resume: bool = False) -> None:
+    """执行工作流；恢复未启动任务时初始化游标，已执行到终点则不重放。"""
     wf = load_workflow(ctx.workflow)
     nodes = {n["id"]: n for n in wf["nodes"]}
-    ctx.pointer = ctx.pointer or wf["nodes"][0]["id"]
+    unstarted = ctx.started_at is None and ctx.status in {"pending", "paused"}
+    if ctx.pointer is None and (not resume or unstarted):
+        ctx.pointer = wf["nodes"][0]["id"]
     ctx.status = "running"
     if not ctx.started_at or ctx.pointer == wf["nodes"][0]["id"]:
         ctx.started_at = time.time()
@@ -343,10 +353,7 @@ def run(ctx: TaskContext) -> None:
 
     while ctx.pointer:
         if ctx.cancel_requested:
-            ctx.status = "cancelled"
-            ctx.finished_at = time.time()
-            ctx.emit("workflow", message="任务已取消，产物与断点保留备查", status="cancelled")
-            ctx.save()
+            _finish_cancelled(ctx)
             return
 
         if ctx.pause_requested:
@@ -377,6 +384,9 @@ def run(ctx: TaskContext) -> None:
             else:
                 ctx.pointer = _run_node(ctx, nodes, nid)
         except PauseRequested:
+            if ctx.cancel_requested:
+                _finish_cancelled(ctx)
+                return
             # 节点内部主动暂停：中间态已由节点自行落盘，指针保持在当前节点
             ctx.status = "paused"
             ctx.finished_at = time.time()
@@ -393,6 +403,9 @@ def run(ctx: TaskContext) -> None:
 
         ctx.save()
 
+    if ctx.cancel_requested:
+        _finish_cancelled(ctx)
+        return
     ctx.status = "done"
     ctx.finished_at = time.time()
     ctx.emit("workflow", message="工作流执行完毕", status="done")

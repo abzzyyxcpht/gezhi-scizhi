@@ -95,7 +95,7 @@ export class Bridge {
   }
 
   _flush() {
-    if (!this.ready || this.localError || this.closed) return;
+    if (!this.ready || this.localError || this.closed || this.remote) return;
     if (!this.supportsIds && this.serial.some(entry => entry.sent)) return;
     for (const entry of this.serial) {
       if (entry.sent) continue;
@@ -166,6 +166,11 @@ export class Bridge {
     }
     this._abortRemote();
     this.remote = { url: parsed.href.replace(/\/$/, ''), token };
+    const switched = new Error('已切换远程连接，本机请求已失效');
+    for (const entry of [...this.pending.values()]) this._settle(entry, switched);
+    // Already-sent legacy work still owns its reply slot. Keep the local
+    // engine alive, but never execute commands queued before switching.
+    this.serial = this.supportsIds ? [] : this.serial.filter(entry => entry.sent);
     return this.connection();
   }
 

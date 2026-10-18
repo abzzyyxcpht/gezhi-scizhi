@@ -2,6 +2,7 @@
 """插件系统单元测试：发现、命令执行、工作流动作注册。"""
 from __future__ import annotations
 
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -34,6 +35,57 @@ class DiscoveryTest(unittest.TestCase):
 
 
 class BibCommandTest(unittest.TestCase):
+    def _render_keys(self, pool, limit=None):
+        from plugins.bibtex_export import _render
+        return re.findall(r"@article\{([^,]+),", _render(pool, len(pool) if limit is None else limit))
+
+    def test_same_author_year_gets_distinct_keys(self):
+        pool = [{"title": f"Paper {i}", "authors": ["John Smith"], "year": 2024}
+                for i in range(3)]
+        self.assertEqual(["Smith2024", "Smith2024a", "Smith2024b"],
+                         self._render_keys(pool))
+
+    def test_many_collisions_keep_every_entry_and_are_repeatable(self):
+        pool = [{"title": f"Paper {i}", "authors": ["John Smith"], "year": 2024}
+                for i in range(80)]
+        keys = self._render_keys(pool)
+        self.assertEqual(len(pool), len(keys))
+        self.assertEqual(len(pool), len(set(keys)))
+        self.assertEqual(keys, self._render_keys(pool))
+
+    def test_generated_suffix_does_not_take_later_original_key(self):
+        repeated = {"authors": ["John Smith"], "year": 2024}
+        pool = [repeated, repeated]
+        pool.extend({"authors": [f"Other{i}"], "year": 2024} for i in range(24))
+        pool.append(repeated)
+        keys = self._render_keys(pool)
+        self.assertEqual("Smith2024a", keys[26])
+        self.assertEqual("Smith2024b", keys[1])
+        self.assertEqual(len(pool), len(set(keys)))
+
+    def test_distinct_keys_retain_existing_identifiers(self):
+        pool = [{"authors": [f"Author{i}"], "year": 2024} for i in range(40)]
+        keys = self._render_keys(pool)
+        self.assertEqual("Author02024", keys[0])
+        self.assertEqual("Author252024", keys[25])
+        self.assertEqual("Author262024a", keys[26])
+        self.assertEqual("Author392024n", keys[39])
+        self.assertEqual(len(pool), len(set(keys)))
+
+    def test_changing_export_limit_preserves_existing_citation_keys(self):
+        repeated = {"authors": ["John Smith"], "year": 2024}
+        pool = [repeated, repeated]
+        pool.extend({"authors": [f"Other{i}"], "year": 2024} for i in range(24))
+        pool.append(repeated)
+        complete_keys = self._render_keys(pool)
+        for limit in (20, 27, 2, 30, 0, 26):
+            with self.subTest(limit=limit):
+                self.assertEqual(complete_keys[:limit], self._render_keys(pool, limit))
+
+    def test_missing_author_year_still_has_distinct_keys(self):
+        self.assertEqual(["anonnd", "anonnda", "anonndb"],
+                         self._render_keys([{}, {}, {}]))
+
     def test_requires_task(self):
         out = plugins.run_command("bib", "")
         self.assertIn("打开任务", out)

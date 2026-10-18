@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import tempfile
 import unittest
 import zlib
@@ -120,6 +121,38 @@ class ExtractTests(unittest.TestCase):
         self.assertEqual("Pelican Paper", meta.get("title"))
         self.assertEqual("Ada Lovelace", meta.get("author"))
         self.assertEqual(2024, meta.get("year"))
+
+    def _encrypted_pdf(self, user_password: str) -> bytes:
+        from pypdf import PdfReader, PdfWriter
+        writer = PdfWriter()
+        writer.append(PdfReader(io.BytesIO(_build_pdf())))
+        writer.encrypt(user_password=user_password, owner_password="fixture-owner")
+        output = io.BytesIO()
+        writer.write(output)
+        return output.getvalue()
+
+    def test_empty_reading_password_extracts_encrypted_pdf(self):
+        result = pdf_text.extract(self._encrypted_pdf(""))
+        self.assertTrue(result["ok"], result)
+        self.assertIn(MARK, result["text"])
+        self.assertEqual(1, result["pages"])
+
+    def test_nonempty_reading_password_remains_unreadable(self):
+        result = pdf_text.extract(self._encrypted_pdf("fixture-reader"))
+        self.assertFalse(result["ok"], result)
+        self.assertIn("已加密", result["error"])
+        self.assertEqual("", result["text"])
+
+    def test_integer_decrypt_result_preserves_reader_compatibility(self):
+        from pypdf import PdfReader
+        data = self._encrypted_pdf("")
+        reader = PdfReader(io.BytesIO(data))
+        original_decrypt = reader.decrypt
+        with patch.object(reader, "decrypt", side_effect=lambda password: int(original_decrypt(password))), \
+                patch("pypdf.PdfReader", return_value=reader):
+            result = pdf_text.extract(data)
+        self.assertTrue(result["ok"], result)
+        self.assertIn(MARK, result["text"])
 
     def test_truncation_is_reported_not_silent(self):
         result = pdf_text.extract(_build_pdf(), max_chars=10)
