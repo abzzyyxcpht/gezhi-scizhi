@@ -129,7 +129,7 @@ class AdaptiveDriver:
             ('steps', 'tokens', 'model_calls', 'summary_calls', 'usage_complete')})
         options = settings.load()
         state.update(status='running', steps=0, tokens=0, model_calls=0, summary_calls=0,
-            usage_complete=True, content='', repair_rounds=0, pending=None,
+            usage_complete=True, content='', repair_rounds=0, pending=None, plan_completion_checks=0,
             max_steps=options.get('agent_max_steps', 16), token_budget=options.get('agent_token_budget', 100000))
         state['messages'].append({'role': 'user', 'content': request})
         user_payload = {'text': display_text or request,
@@ -202,7 +202,7 @@ class AdaptiveDriver:
                  "token_budget": options.get("agent_token_budget", 100000),
                  "queue": [], "pending": None, "active_call": None, "active_calls": [],
                  "used_call_ids": [], "unresolved": {}, "content": "",
-                 "repair_rounds": 0, "compressions": 0,
+                 "repair_rounds": 0, "compressions": 0, "plan_completion_checks": 0,
                  "stream_enabled": bool(options.get("agent_stream_enabled", STREAM_ENABLED_DEFAULT))}
         self.store.append(sid, "driver_started", {"driver": "adaptive", "model": {
             k: v for k, v in state["model_identity"].items() if k != "credential_fingerprint"},
@@ -298,7 +298,8 @@ class AdaptiveDriver:
                                   {"status": status, "reason": reason, "message": message})
             state.update(status=status, pending=None)
             self._save(state)
-            return self._result(state, reason=reason, error=message if status == "error" else "")
+            return self._result(state, reason=reason, error=message if status == "error" else "",
+                                **({"message": message} if reason == "plan_incomplete" else {}))
 
     def _observe(self, state: dict, call: dict, result: dict):
         from .tool_output_runtime import prepare_result
@@ -394,6 +395,26 @@ class AdaptiveDriver:
             return self._result(state, task_id=result["task_id"], reason="等待科研任务；处理任务后继续会话")
         return None
 
+    @staticmethod
+    def _plan_tool_exposed(state: dict, name: str) -> bool:
+        if name not in {'plan.read', 'plan.update'}:
+            return True
+        return any(schema.get('function', {}).get('name') == name
+                   for schema in state.get('tool_schemas', []))
+
+    def _refresh_plan_context(self, state: dict) -> None:
+        from .execution_plan import context_text
+        content = (context_text(self.store, state['session_id'])
+                   if self._plan_tool_exposed(state, 'plan.update') else '')
+        # The marker is private and omitted by provider adapters. Only the
+        # runtime-owned reminder is replaced; user text is never matched.
+        messages = [message for message in state['messages']
+                    if message.get('_execution_plan') != {'version': 1}]
+        if content:
+            messages.append({'role': 'user', 'content': content[:6000],
+                             '_execution_plan': {'version': 1}})
+        state['messages'] = messages
+
     def _collect_read_batch(self, state: dict) -> list[dict]:
         """从队首连续收集可并行执行的只读调用（至多 PARALLEL_READ_BATCH 个）。
 
@@ -408,7 +429,8 @@ class AdaptiveDriver:
         sid = state["session_id"]
         for other in queue[1:PARALLEL_READ_BATCH]:
             spec = self.runtime.tools.get(other["name"])
-            if spec is None or other.get("error") or spec.capability != "read":
+            if (spec is None or other.get("error") or spec.capability != "read"
+                    or not self._plan_tool_exposed(state, other["name"])):
                 break
             if self.runtime._agent_gate(sid, spec.name, spec.capability, other["arguments"]) != "allow":
                 break
@@ -740,6 +762,8 @@ class AdaptiveDriver:
                     if fixed != call["name"] and fixed in self.runtime.tools:
                         call["name"] = fixed
                         spec = self.runtime.tools[fixed]
+                if not self._plan_tool_exposed(state, call["name"]):
+                    spec = None
                 if spec is None or call.get("error"):
                     # 未知工具名/参数解析失败不直接判死：合成失败结果走自愈回路，
                     # 把错误回喂模型自我修正（受修复轮数与步数预算约束）。
@@ -788,6 +812,10 @@ class AdaptiveDriver:
                 return self._finish(state, "error", "token_budget", "已达到报送的 token 预算")
             if state["model_identity"] != self._identity():
                 return self._finish(state, "error", "model_changed", "会话执行中模型配置已改变，请新建会话")
+            try:
+                self._refresh_plan_context(state)
+            except (ValueError, TypeError, OSError) as exc:
+                return self._finish(state, 'error', 'plan_state_error', str(exc))
             cfg = model_registry.resolve("planning")
             # 容量检查走启发式 token 估算（非 tokenizer）：硬阈值 = context_window，
             # 软阈值 0.7 / 再压缩 0.9 保留；字节数仅作结果上报。
@@ -799,6 +827,10 @@ class AdaptiveDriver:
                                     else COMPRESS_SOFT_RATIO)
             if context_tokens > trigger:
                 self._compress_context(state, cfg)
+                try:
+                    self._refresh_plan_context(state)
+                except (ValueError, TypeError, OSError) as exc:
+                    return self._finish(state, 'error', 'plan_state_error', str(exc))
                 context_tokens = self._estimate_tokens(state["messages"])
                 if context_tokens > hard_limit:
                     return self._finish(state, "error", "context_budget",
@@ -840,6 +872,19 @@ class AdaptiveDriver:
                     return self._finish(state, "error", "unresolved_tool_errors", "仍存在未修复的工具错误")
                 if not state["content"]:
                     return self._finish(state, "error", "empty_model_result", "模型未返回内容或工具调用")
+                from .execution_plan import completion_issue
+                try:
+                    issue = completion_issue(self.store, sid)
+                except (ValueError, TypeError, OSError) as exc:
+                    return self._finish(state, 'error', 'plan_state_error', str(exc))
+                if issue:
+                    if state.get('plan_completion_checks', 0) >= 1:
+                        return self._finish(state, 'blocked', 'plan_incomplete', issue)
+                    state['plan_completion_checks'] = 1
+                    state['messages'].append({'role': 'user', 'content': issue})
+                    self._save(state)
+                    self.store.append(sid, 'plan_completion_required', {'message': issue, 'attempt': 1})
+                    continue
                 return self._finish(state, "done")
             if len(calls) > 8:
                 return self._finish(state, "error", "tool_budget", "单步工具请求超过上限 8")

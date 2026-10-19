@@ -455,6 +455,9 @@ class AgentRuntime:
         from .tool_output_runtime import register_tools as register_output_tools
         register_output_tools(self)
 
+        from .execution_plan import register_tools as register_plan_tools
+        register_plan_tools(self)
+
     def tools_schema(self, session_id: str | None = None) -> list[dict[str, Any]]:
         """OpenAI function-calling 形状的工具清单（喂给模型做 tool-calls 用）。"""
         return [{"type": "function",

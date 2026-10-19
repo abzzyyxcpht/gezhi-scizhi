@@ -195,6 +195,41 @@ def self_check(output_path: Path | str, *, resource_root: Path | None = None,
                     check("runtime_plan", plan)
                     check("swarm_plan_cancel", swarm_plan_cancel)
 
+                    def execution_plan_check():
+                        from src.agent_runtime import ToolCall, SessionStore
+                        from src.execution_plan import read_plan, completion_issue
+                        sid = 'selfcheck-execution-plan'
+                        runtime.sessions.append(sid, 'user_message', {'text': 'Inspect saved workspace'})
+                        runtime.sessions.append(sid, 'turn_started', {'turn_id': 'selfcheck-plan-turn'})
+                        step = {'id': 'inspect', 'title': '读取工作区', 'criterion': '关联实际读取回执',
+                                'kind': 'execution', 'status': 'in_progress', 'evidence': []}
+                        def update(call_id, revision, value):
+                            return runtime._execute_call(sid, ToolCall(call_id, 'plan.update', {
+                                'expected_turn_id': 'selfcheck-plan-turn', 'expected_revision': revision,
+                                'steps': [value]}, 'write'))
+                        if update('plan-create', 0, step).get('ok') is not True:
+                            raise ValueError('Execution plan creation failed')
+                        if not completion_issue(runtime.sessions, sid):
+                            raise ValueError('Open execution plan was reported complete')
+                        fake = update('plan-fake', 1, {**step, 'status': 'completed', 'evidence': ['missing-receipt']})
+                        if fake.get('ok') is not False or read_plan(runtime.sessions, sid)['revision'] != 1:
+                            raise ValueError('Fabricated completion evidence was accepted')
+                        observed = runtime._execute_call(sid, ToolCall('plan-inspect', 'workspace.read', {}, 'read'))
+                        if observed.get('ok') is False:
+                            raise ValueError('Workspace evidence read failed')
+                        finished = update('plan-finish', 1, {**step, 'status': 'completed', 'evidence': ['plan-inspect']})
+                        if finished.get('ok') is not True:
+                            raise ValueError('Genuine execution evidence was rejected')
+                        reopened = read_plan(SessionStore(runtime.sessions.root), sid)
+                        if not reopened['ready'] or reopened['completed'] != 1:
+                            raise ValueError('Execution plan did not survive reopening the journal')
+                        runtime.sessions.append(sid, 'completed', {'status': 'done'})
+                        return {'persisted': True, 'real_tool_receipt': True, 'fake_evidence_rejected': True,
+                                'model_calls': 0}
+
+                    check('execution_plan', execution_plan_check)
+
+
                     def event_projection():
                         store = runtime.sessions
                         sid = 'selfcheck-events'

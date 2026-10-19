@@ -543,6 +543,9 @@ def _handle(req: dict[str, Any]) -> dict[str, Any]:
         if cmd == 'product_demo':
             from .product_readiness import start_demo
             return start_demo()
+        if cmd == 'session_plan':
+            from .execution_plan import read_plan
+            return _ok(plan=read_plan(_runtime().sessions, req.get('session_id')))
         if cmd in {'session_status', 'session_compact'}:
             from .session_controls import session_status, compact_session
             sid = req.get('session_id')
@@ -573,7 +576,7 @@ def process_requests(input_stream, output_stream, dispatch=handle) -> None:
     slots = threading.BoundedSemaphore(64)
     fast = {"poll", "list", "nodes", "settings_get", "workbench_status", "loop_list",
             "tower_snapshot", "swarm_list", "swarm_get", "swarm_cancel",
-            "remote_status", "shell_exec", "sessions", "session_snapshot", "session_status", "session_events", "agent_launch_status", "command_catalog", "workbench_mode", "agent_cancel",
+            "remote_status", "shell_exec", "sessions", "session_snapshot", "session_status", "session_plan", "session_events", "agent_launch_status", "command_catalog", "workbench_mode", "agent_cancel",
             "model_registry", "model_capabilities", "skills_selection", "product_readiness", "evidence_brief", "steer_add", "steer_status", "world_fact_list", "world_fact_get", "world_fact_schema", "world_fact_support", "world_fact_challenge",
             'review_start', 'review_list', 'review_get', 'review_cancel', 'review_resume', 'review_accept', 'review_dismiss', 'review_events',
             "queue_add", "queue_list", "queue_remove", "queue_discard", "queue_pause", "queue_resume", "queue_reorder"}

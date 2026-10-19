@@ -257,6 +257,13 @@ def session_status(session_id, *, store=None):
             result['context_manifest'] = public_manifest(snapshot['plan'].get('context_manifest'))
     result.update(can_compact=not bool(reason), compact_unavailable_reason=reason)
     result['research_contexts'] = _research_contexts(store.root / f'{session_id}.research-contexts.json')
+    from .execution_plan import read_plan
+    try:
+        result['execution_plan'] = read_plan(store, session_id)
+    except (OSError, ValueError, TypeError, KeyError):
+        result['execution_plan'] = {'session_id': session_id, 'has_plan': False,
+                                    'error': '执行计划暂不可读，请稍后重试'}
+
     return result
 
 

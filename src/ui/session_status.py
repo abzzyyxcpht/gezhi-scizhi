@@ -9,6 +9,7 @@ import flet as ft
 from ..bridge import handle
 from ..workbench import redact
 from .control_tower import STATUS
+from .execution_plan import ExecutionPlanPanel
 from .theme import palette as p, style_inputs
 
 
@@ -181,6 +182,7 @@ class SessionStatusPanel:
         self.reason = ft.Text('打开会话后可查看整理条件。', size=11, color=p.TEXT_3, max_lines=2,
                               overflow=ft.TextOverflow.ELLIPSIS)
         self.feedback = ft.Text('', size=12, color=p.TEXT_2, visible=False, selectable=True)
+        self.execution_plan = ExecutionPlanPanel()
         self.compact_button = ft.TextButton('整理上下文', icon=ft.Icons.COMPRESS, disabled=True,
             tooltip='用本地规则整理活跃上下文，不调用模型；对话历史和当前草稿保留。',
             on_click=lambda e: self.compact(), style=ft.ButtonStyle(color=p.ACCENT_TEXT))
@@ -204,6 +206,7 @@ class SessionStatusPanel:
             ft.Row([ft.Text('会话状态', size=12, weight=ft.FontWeight.W_600, color=p.TEXT),
                     self.summary, self.compact_button], spacing=8),
             self.execution_scope, self.metrics, self.waiting, self.warning,
+            self.execution_plan.content,
             self.context_sources, self.details, self.reason, self.feedback,
         ], spacing=4)
         style_inputs(self.content)
@@ -303,7 +306,7 @@ class SessionStatusPanel:
             (self.reason, 'tooltip', reason),
             (self.compact_button, 'disabled', bool(reason) or not bool(row.get('can_compact'))),
         ]
-        changed = False
+        changed = self.execution_plan.update(row.get('execution_plan'), read_error=self._read_error)
         for control, attribute, value in updates:
             changed = self._set(control, attribute, value) or changed
         return changed

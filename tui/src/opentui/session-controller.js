@@ -1,6 +1,7 @@
 // 会话控制器 —— 框架无关的 bridge 交互层（注入 bridge，便于无 Python 单测）
 // 职责：模式同步/切换、斜杠命令子集、非斜杠消息的 agent 发起 + 轮询 + 快照渲染
 import { parseCommand, COMMANDS } from "../commands.js"
+import { executionPlanLines } from "../execution-plan.js"
 import { normalizeAppearance } from "./theme/preferences.js"
 import { rankHypotheses, consensusFromBrief, buildExperimentTree } from "./components/research-panels.js"
 import { timelineCounts, timelineDetail } from "./components/research-timeline.js"
@@ -331,6 +332,16 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
       const used = Number(c.used ?? c.tokens ?? 0)
       const total = Number(c.total ?? c.limit ?? 0)
       return { lines: [{ text: total > 0 ? `上下文占用 ${Math.round((used / total) * 100)}%（${used}/${total}）` : "上下文状态不可用", dim: !total }] }
+    }
+    if (name === "progress") {
+      const id = (args || "").trim() || currentSessionId || "";
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) return { lines: [{ text: "用法：/progress [会话ID]", dim: true }] };
+      const selected = currentSessionId;
+      const response = await bridge.call({ cmd: "session_plan", session_id: id }).catch(error => ({ ok: false, error: String(error?.message || error) }));
+      if (!args.trim() && selected !== currentSessionId) return { lines: [] };
+      if (response?.ok !== true) return { lines: [{ text: `✗ ${redactText(response?.error || "计划读取失败")}`, dim: true }] };
+      if (response.plan?.session_id !== id) return { lines: [{ text: "计划与会话不匹配，请重新读取", dim: true }] };
+      return { lines: executionPlanLines(response.plan).map(text => ({ text })) };
     }
     if (name === "session-status" || name === "compact") {
       // 会话模型/上下文/预算/等待原因；compact 同族
@@ -803,6 +814,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
     }
     if (status?.ok && status.status) {
       const s = status.status
+      if (s.execution_plan?.has_plan) sections.push({ title: "执行计划", lines: executionPlanLines(s.execution_plan, { compact: true }).map(text => ({ text })) });
       sections.push({ title: "会话", lines: [{ text: `${currentSessionId} · ${s.status || "?"}` }, { text: `上下文 ${s.context?.input_tokens ?? "?"}/${s.context?.limit_tokens ?? "?"}` }] })
     }
     return sections

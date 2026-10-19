@@ -1,3 +1,4 @@
+import { executionPlanLines } from "./execution-plan.js";
 import { redactText } from './sensitive-text.js';
 import stringWidth from 'string-width';
 
@@ -129,6 +130,7 @@ export function sessionStatusLines(status = {}) {
   if (status.updated_at) lines.push(`记录更新：${recorded(status.updated_at)}`);
   lines.splice(1, 0, executionContextIdentity(status));
   lines.push(...sessionContextLines(status));
+  if (status.execution_plan?.has_plan || status.execution_plan?.error) lines.push(...executionPlanLines(status.execution_plan));
   return lines;
 }
 

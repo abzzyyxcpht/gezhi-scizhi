@@ -18,7 +18,7 @@ from src.version import APP_VERSION as APP_VER  # noqa: E402 -- direct script en
 
 REQUIRED_SELF_CHECKS = frozenset({'imports', 'version', 'data_isolation', 'runtime_plan',
     'swarm_plan_cancel', 'frozen_desktop_client', 'session_event_projection',
-    'session_status_compact', 'network_isolation', 'product_readiness', 'product_demo_offline', 'pdf_backend', 'markdown_code_preview',
+    'session_status_compact', 'network_isolation', 'product_readiness', 'product_demo_offline', 'pdf_backend', 'markdown_code_preview', 'execution_plan',
     'experimental_defaults', 'experimental_queue', 'experimental_steering', 'evidence_review_inbox', 'history_index',
     'composer_drafts', 'tool_outputs', 'shell_owned_execution', 'shell_stream_capture', 'interaction_controls'})
 

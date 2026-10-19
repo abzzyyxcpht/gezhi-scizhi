@@ -73,6 +73,12 @@ class DesktopAsyncTest(unittest.TestCase):
         self.assertIn(self.ui.agent_session_label, list(walk(self.ui.agent_activity)))
         self.assertIn(self.ui.reasoning_control.content, self.ui.agent_options.controls)
 
+    def test_execution_plan_is_visible_in_the_main_scroller_not_hidden_in_details(self):
+        plan = self.ui.session_status.execution_plan.content
+        self.assertIs(self.ui.agent_activity.controls[0], plan)
+        self.assertNotIn(plan, self.ui.session_status.content.controls)
+        self.assertEqual(ft.ScrollMode.AUTO, self.ui.agent_activity.scroll)
+
     def test_busy_feedback_respects_environment_reduced_motion(self):
         self.ui.agent_busy.visible = True
         self.ui.feature_switches['ui_animations'].value = True

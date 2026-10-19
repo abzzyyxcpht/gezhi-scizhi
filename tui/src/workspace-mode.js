@@ -11,12 +11,12 @@ const researchCommands = new Set(['new', 'tasks', 'workflows', 'workflow', 'loop
   'swarm', 'notebook', 'reviews', 'automations', 'schedule', 'handoff',
   'hypotheses', 'consensus', 'matrix', 'experiments', 'novelty', 'goal', 'facts', 'fact', 'peer-review', 'reproduce', 'config']);
 const sessionCommands = new Set(['agent', 'plan', 'review', 'sessions', 'continue', 'cancel-agent', 'session',
-  'session-status', 'compact', 'queue', 'steer', 'history', 'outputs', 'session-export', 'approve', 'deny',
+  'session-status', 'progress', 'compact', 'queue', 'steer', 'history', 'outputs', 'session-export', 'approve', 'deny',
   'agents', 'spawn', 'activity', 'chat', 'rewind']);
 const workspaceCommands = new Set(['project', 'terminal', 'pdf', 'memory', 'commands', 'command-save',
   'command-delete', 'run', 'browser', 'computer', 'todo', 'notifications', 'context', 'init']);
 
-const busyAllowed = new Set(['mode', 'cancel-agent', 'steer', 'reviews', 'history', 'outputs', 'queue']);
+const busyAllowed = new Set(['mode', 'cancel-agent', 'steer', 'reviews', 'history', 'outputs', 'queue', 'progress']);
 const remoteDisabled = new Set(['mode', 'agent', 'spawn', 'review', 'plan', 'model', 'models', 'reasoning',
   'connection', 'profile', 'settings', 'toggle', 'plugins', 'skills', 'skill', 'mcp', 'git', 'doctor',
   'init', 'context', 'rerun', 'delete', 'drop', 'export', 'stats', 'agents', 'rewind', 'remote',

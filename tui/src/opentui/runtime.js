@@ -912,7 +912,7 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
       setStatus("选择科研步骤")
       return true
     }
-    if (name === "queue" || name === "reviews" || name === "history") {
+    if (name === "queue" || name === "reviews" || name === "history" || name === "progress") {
       // 实验队列 / 复核收件箱 / 对话记录：当前回合忙时也立即可用（不进消息队列，不产生新回合）
       const ctrl = controllerRef.current
       if (!ctrl?.submit) return true

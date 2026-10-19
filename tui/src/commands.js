@@ -118,6 +118,7 @@ export const COMMANDS = [
   { name: 'cancel-agent', args: '[会话ID]',    desc: '取消当前或指定的 Agent 会话' },
   { name: 'session', args: '<id>',             desc: '全屏阅读完整会话快照' },
   { name: 'session-status', args: '[会话ID]',  desc: '查看会话模型、上下文、预算与等待原因' },
+  { name: 'progress', args: '[会话ID]', desc: '查看本轮执行计划、完成标准与工具回执' },
   { name: 'compact', args: '[会话ID]',         desc: '静止会话确定性压缩上下文，不调用模型' },
   { name: 'queue', args: '[list|add <文本>|pause|resume|remove|discard|reorder|enable|disable]', desc: '实验性下一轮队列，保留当前执行与审批边界' },
   { name: 'steer', args: '[status|add <文本>|enable|disable]', desc: '实验性本轮补充，绑定当前回合并保留工具审批' },

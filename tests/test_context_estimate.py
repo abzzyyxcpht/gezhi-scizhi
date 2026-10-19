@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
 from src import llm, model_registry, prompts, settings
 from src.agent_driver import AdaptiveDriver
 from src.agent_runtime import AgentRuntime
+from src.agents.specs import ROSTER
 from tests.test_driver_resilience import driver_state, response
 from tests.test_driver_streaming import stream_batches, stream_result
 
@@ -56,7 +58,11 @@ class TokenThresholdTest(unittest.TestCase):
         for patch in (mock.patch.object(settings, "_PATH", self.root / "settings.json"),
                       mock.patch.object(llm, "available", return_value=True),
                       mock.patch.object(model_registry, "resolve", side_effect=lambda *_: dict(self.profile)),
-                      mock.patch.object(prompts, "agent_system", return_value="Test system.")):
+                      mock.patch.object(prompts, "agent_system", return_value="Test system."),
+                      # These deliberately tiny windows measure compression, not
+                      # the changing length of product-level role instructions.
+                      mock.patch.dict(ROSTER, {"research": replace(
+                          ROSTER["research"], prompt="科研智能体：根据工具回执汇总。")})):
             patch.start()
             self.addCleanup(patch.stop)
 

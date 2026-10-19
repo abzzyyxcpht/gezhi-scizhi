@@ -22,6 +22,8 @@ RISK_LABELS = {"citation": "引用", "data": "数据", "code": "代码"}
 # ---- 工具规则：(模式, 所需档位, 风险类, 目标, 影响, 可逆) ----
 # 未命中的工具按 capability 回落：read/network → 只读·引用，其余 → 工作区写入·数据。
 _RULES: tuple[tuple[str, str, str, str, str, bool], ...] = (
+    ("plan.update", "read-only", "data",
+     "更新本回合执行计划", "仅保存会话进度元数据，不修改用户文件、不执行计划中的操作", True),
     ("shell.run", "full-access", "code",
      "在工作区执行 shell 命令", "可修改文件、访问网络、改变系统状态；输出封顶 4000 字符", False),
     ("control.call", "full-access", "code",

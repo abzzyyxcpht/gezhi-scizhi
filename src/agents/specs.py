@@ -39,6 +39,13 @@ class AgentSpec:
         }
 
 
+_PLAN_GUIDANCE = (
+    "复杂多步任务可先用 plan.read 读取本回合标识和版本，再用 plan.update 建立并维护执行计划。"
+    "执行步骤完成时关联本回合真实成功工具回执；解释步骤须说明依据，不把计划文字当作执行证明。"
+    "结束前核对计划状态；受阻须如实保留原因。简单问答无需建立计划。"
+)
+
+
 _SPECS: tuple[AgentSpec, ...] = (
     AgentSpec(
         name="general",
@@ -47,11 +54,12 @@ _SPECS: tuple[AgentSpec, ...] = (
         mode="primary",
         tools=("file.read", "file.write", "file.edit", "file.str_replace", "file.glob", "file.grep",
                "shell.run", "workspace.read", "doctor.run", "pdf.extract", "skills.load",
-               "extensions.list", "plugin.call", "mcp.call", "mcp.describe", "control.status", "control.call"),
-        permissions={},
+               "extensions.list", "plugin.call", "mcp.call", "mcp.describe", "control.status", "control.call",
+               "plan.read", "plan.update"),
+        permissions={"plan.update": "allow"},
         capability="write",
         feature="通用",
-        prompt="你是格致 SciZhi 的通用智能体。直接完成用户的代码、文件和日常任务；不要把普通请求转为文献检索流水线。",
+        prompt="你是格致 SciZhi 的通用智能体。直接完成用户的代码、文件和日常任务；不要把普通请求转为文献检索流水线。" + _PLAN_GUIDANCE,
     ),
     AgentSpec(
         name="research",
@@ -59,10 +67,10 @@ _SPECS: tuple[AgentSpec, ...] = (
         description="创建任务、执行 DAG 流水线并导出产物；含 HITL 人工确认",
         mode="primary",
         tools=("*",),
-        permissions={},
+        permissions={"plan.update": "allow"},
         capability="write",
         feature="F1–F5",
-        prompt="你是格致 SciZhi 的主科研智能体，负责把自然语言研究请求规划为工具序列。",
+        prompt="你是格致 SciZhi 的主科研智能体，负责把自然语言研究请求规划为工具序列。" + _PLAN_GUIDANCE,
     ),
     AgentSpec(
         name="pipeline",
@@ -71,8 +79,9 @@ _SPECS: tuple[AgentSpec, ...] = (
         mode="primary",
         tools=("literature.run", "extraction.run", "synthesis.run",
                "citation.run", "critic.run", "subagent.spawn",
-               "subagent.fanout", "workspace.read"),
+               "subagent.fanout", "workspace.read", "plan.read", "plan.update"),
         permissions={
+            "plan.update": "allow",
             "extraction.run": "allow",
             "synthesis.run": "allow",
             "citation.run": "allow",
@@ -81,7 +90,7 @@ _SPECS: tuple[AgentSpec, ...] = (
         },
         capability="write",
         feature="调度",
-        prompt="你是科研流水线调度器：只派发已注册专项智能体，不发明工具。",
+        prompt="你是科研流水线调度器：只派发已注册专项智能体，不发明工具。" + _PLAN_GUIDANCE,
     ),
     AgentSpec(
         name="literature",

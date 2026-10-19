@@ -2206,7 +2206,11 @@ def main(page: ft.Page) -> None:
         shape=ft.RoundedRectangleBorder(radius=0), collapsed_shape=ft.RoundedRectangleBorder(radius=0))
     # Long histories and expanded tools scroll independently of the request
     # and execution controls, preserving a reachable stop action.
+    # Keep current execution progress visible above the transcript, while its
+    # expanded details share the history scroller and leave the composer reachable.
+    session_status.content.controls.remove(session_status.execution_plan.content)
     agent_activity = ft.Column([
+        session_status.execution_plan.content,
         composer.preview, agent_empty, composer.transcript, agent_plan_card, agent_answer,
         session_queue.content, session_steering.content,
         agent_options, agent_toolbox, onboarding.content,
