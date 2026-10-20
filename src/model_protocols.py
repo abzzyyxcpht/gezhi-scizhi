@@ -547,6 +547,9 @@ def normalize_usage(protocol: str, data: dict) -> dict:
         read = None
     return {"prompt_tokens": prompt or 0, "completion_tokens": completion or 0,
             "cached_prompt_tokens": read, "cache_write_tokens": write or 0, "reasoning_tokens": reasoning or 0,
+            # reasoning 与 cache 一样必须区分「供应商报了 0」和「供应商没说」：
+            # 折叠成 0 会让界面把未知当成事实。
+            "reasoning_reported": reasoning is not None,
             "cache_reported": read is not None, "usage_reported": prompt is not None and completion is not None}
 
 

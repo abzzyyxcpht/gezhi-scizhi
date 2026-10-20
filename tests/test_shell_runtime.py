@@ -68,6 +68,9 @@ class ShellRuntimeTest(unittest.TestCase):
         self.assertIn('READY',output['stdout'])
 
     def test_preview_journal_is_bounded_and_does_not_leak_line_secret(self):
+        # C2 三档门后：shell.run 需 full-access 档位才进入执行（与上方取消用例一致）
+        (self.root/'settings.json').write_text(
+            json.dumps({"agent_permission_tier": "full-access"}),encoding='utf-8')
         runtime=AgentRuntime(session_root=self.root/'sessions',offline=True)
         from src.agent_runtime import ToolCall
         script=self.root/'output.py'

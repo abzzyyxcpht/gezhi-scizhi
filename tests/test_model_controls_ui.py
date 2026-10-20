@@ -75,3 +75,67 @@ def test_new_stage_invalidates_old_catalog_and_response():
     queued[0]()
     assert ui.snapshot is None
     assert ui.apply_button.disabled
+
+
+def test_effort_preview_changes_without_saving_or_calling_model():
+    ui, _, api, changed = panel()
+    ui.open()
+    ui.effort.value = "high"
+    ui.effort.on_select(None)
+    assert ui.feedback.value == "high"
+    assert max(bar.height for bar in ui.feedback.bars) == 24
+    assert api.call_count == 1
+    changed.assert_not_called()
+    assert "尚未保存" in ui.preview_note.value
+
+
+def test_unknown_saved_effort_requires_an_explicit_valid_choice():
+    ui, _, api, _ = panel()
+    saved = catalog()
+    saved["items"][0]["reasoning_effort"] = "future-effort"
+    api.return_value = {"ok": True, "catalog": saved}
+    ui.open()
+    assert ui.effort.value is None
+    assert ui.feedback.value == "future-effort"
+    assert ui.apply_button.disabled
+    ui.apply()
+    assert api.call_count == 1
+    ui.effort.value = "high"
+    ui.effort.on_select(None)
+    assert not ui.apply_button.disabled
+    assert ui.feedback.value == "high"
+
+
+def test_failed_effort_save_preserves_draft_without_confirmed_flash():
+    ui, _, api, changed = panel()
+    ui.open()
+    ui.effort.value = "high"
+    ui.effort.on_select(None)
+    ui.feedback.refresh = mock.Mock(wraps=ui.feedback.refresh)
+    api.return_value = {"ok": False, "error": "模型配置已变化"}
+    ui.apply()
+    assert ui.feedback.value == "high"
+    assert not any(call.kwargs.get("confirmed") for call in ui.feedback.refresh.call_args_list)
+    changed.assert_not_called()
+
+
+def test_closing_model_panel_clears_transient_feedback():
+    ui, _, _, _ = panel()
+    ui.open()
+    ui.feedback.clear_feedback = mock.Mock()
+    ui.close()
+    ui.feedback.clear_feedback.assert_called_once()
+
+
+def test_saved_effort_confirms_preview_only_after_success():
+    ui, _, api, _ = panel()
+    ui.open()
+    ui.effort.value = "high"
+    ui.effort.on_select(None)
+    ui.feedback.confirm = mock.Mock()
+    saved = catalog("r2")
+    saved["items"][0]["reasoning_effort"] = "high"
+    api.return_value = {"ok": True, "catalog": saved}
+    ui.apply()
+    ui.feedback.confirm.assert_called_once()
+    assert "已保存" in ui.preview_note.value

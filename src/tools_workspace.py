@@ -13,6 +13,8 @@ shell.run 选择 shell=True 直接执行用户命令字符串：科研工作目�
 （dir/echo/激活环境等内建命令）在 Windows 上只有经 shell 才能运行；
 shell=False 无法跨平台解析这些输入。防注入由三层兜底：capability=write
 默认 ask 审批、危险命令 deny 名单在审批前直接拒绝、stdout/stderr 有界截断。
+deny 名单只是"尽力而为"的纵深防御：归一化能挡住引号/空白/分隔符一类常见
+混淆，但变量展开、命令编码、别名与自写脚本仍可能绕过；人工审批才是主控制。
 """
 from __future__ import annotations
 
@@ -40,16 +42,98 @@ SHELL_TIMEOUT_MAX = 120              # shell.run 超时上限（秒）
 
 # 危险命令 deny 名单：命中即拒绝执行，不进入审批流程。均为大小写不敏感的
 # 正则，针对的是"破坏性/不可恢复"语义（递归删除、格式化、强杀进程等）。
+#
+# 这是"尽力而为"的纵深防御，不是安全边界：变量展开、命令编码、别名或自写
+# 脚本仍可能绕过；真正的主控制是 capability=write 的人工审批。匹配前会先
+# 归一化（去引号、折叠空白、按 shell 分隔符拆段、递归展开 cmd /c 与
+# powershell -c 内联命令），用于覆盖常见绕过写法。
 _DENY_PATTERNS: tuple[str, ...] = (
-    r"\brm\s+-[a-z]*r[a-z]*f", r"\brm\s+-[a-z]*f[a-z]*r",
-    r"\brm\s+-rf\b", r"\brm\s+-fr\b", r"\brm\s+--recursive",
+    # POSIX 递归强制删除：-rf/-fr/-Rf 合并标志与 -r -f/-f -r 分写标志
+    r"\brm\s+(?:-[a-z]*r[a-z]*\s+-[a-z]*f[a-z]*"
+    r"|-[a-z]*f[a-z]*\s+-[a-z]*r[a-z]*"
+    r"|-[a-z]*(?:r[a-z]*f|f[a-z]*r))",
+    r"\brm\b[^\r\n;&|]*--recursive\b",
     r"\bformat\s+[a-z]:", r"\bmkfs(?:\.[a-z0-9]+)?\b", r"\bdd\s+.*\bof=/dev/",
-    r"\bdel(?:ete)?\s+/[a-z]*[fs]", r"\berase\s+/[a-z]*[fs]", r"\brmdir\s+/s",
+    # Windows 删除：del/erase 的 /f /s、rmdir/rd 的 /s 支持任意顺序与分写标志
+    r"\b(?:del|erase)\s+(?:/[a-z]+\s+)*/[a-z]*[fs]\b",
+    r"\b(?:rmdir|rd)\s+(?:/[a-z]+\s+)*/[a-z]*s\b",
+    # PowerShell 删除：Remove-Item 与常见别名（rm/ri/del/erase/rmdir）的递归/强制
+    r"\b(?:remove-item|ri|rm|del|erase|rmdir)\b[^\r\n;&|]*\s-{1,2}(?:recurse|rec|force|fo)\b",
+    # PowerShell 编码命令（-EncodedCommand）无法静态审查，直接拒绝
+    r"\b(?:powershell|pwsh)(?:\.exe)?\b[^\r\n;&|]*\s-{1,2}(?:enc|encodedcommand)\b",
     r"\bshutdown\b", r"\breboot\b", r"\bpoweroff\b",
     r":\(\)\s*\{\s*:\|:\s*;\s*\};:",
     r"\bgit\s+push\s+--force\b", r"\bgit\s+push\s+-f\b",
 )
 _DENY_RES = tuple(re.compile(p, re.IGNORECASE) for p in _DENY_PATTERNS)
+
+# shell 分隔符与内联 shell 识别（归一化后使用，见 _deny_rule）。
+_COMMAND_SEPARATORS = re.compile(r"&&|\|\||[;&|\r\n]")
+_INLINE_SHELL_MAX_DEPTH = 3
+_INLINE_CMD = re.compile(r"\bcmd(?:\.exe)?\b\s+(?P<rest>.*)$", re.IGNORECASE)
+_INLINE_CMD_SWITCH = re.compile(
+    r"^(?:/[a-z]+\b\s*)*?/[ck]\b\s*(?P<payload>.*)$", re.IGNORECASE)
+_INLINE_PS = re.compile(r"\b(?:powershell|pwsh)(?:\.exe)?\b\s+(?P<rest>.*)$", re.IGNORECASE)
+_INLINE_PS_SWITCH = re.compile(
+    r"(?:^|\s)-{1,2}(?:command|comman|comma|comm|com|c)\b", re.IGNORECASE)
+
+# 路径边界常量（_resolve_in_root）。
+_DRIVE_PREFIX = re.compile(r"^[A-Za-z]:")
+_CONTROL_CHAR = re.compile(r"[\x00-\x1f\x7f]")
+_RESERVED_DEVICE_NAMES = frozenset(
+    {"con", "prn", "aux", "nul", "clock$", "conin$", "conout$"}
+    | {f"com{index}" for index in range(1, 10)}
+    | {f"lpt{index}" for index in range(1, 10)}
+    | {"com¹", "com²", "com³", "lpt¹", "lpt²", "lpt³"})
+
+
+def _normalize_command(command: str) -> str:
+    """去掉引号并折叠空白，让 ``r"m" -rf``、``cmd  /c  "del"`` 落到同一形态。"""
+    text = command.replace('"', "").replace("'", "")
+    return re.sub(r"\s+", " ", text).strip().casefold()
+
+
+def _command_segments(normalized: str) -> list[str]:
+    """按 ``;`` ``&&`` ``||`` ``|`` ``&`` 与换行拆分，逐段匹配。"""
+    return [segment.strip() for segment in _COMMAND_SEPARATORS.split(normalized)
+            if segment.strip()]
+
+
+def _inline_shell_payload(segment: str) -> str | None:
+    """返回 ``cmd /c``、``cmd /k``、``powershell -c/-Command`` 的内联命令正文。"""
+    match = _INLINE_CMD.search(segment)
+    if match:
+        switch = _INLINE_CMD_SWITCH.match(match.group("rest"))
+        if switch:
+            return switch.group("payload").strip() or None
+    match = _INLINE_PS.search(segment)
+    if match:
+        switch = _INLINE_PS_SWITCH.search(match.group("rest"))
+        if switch:
+            return match.group("rest")[switch.end():].strip() or None
+    return None
+
+
+def _deny_rule(command: str) -> str | None:
+    """归一化后逐段匹配 deny 名单，递归检查内联 shell；返回命中的规则文本。"""
+    pending = [(_normalize_command(command), 0)]
+    seen: set[str] = set()
+    while pending:
+        text, depth = pending.pop()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        for candidate in (text, *_command_segments(text)):
+            for deny in _DENY_RES:
+                if deny.search(candidate):
+                    return deny.pattern
+        if depth >= _INLINE_SHELL_MAX_DEPTH:
+            continue
+        for segment in _command_segments(text):
+            payload = _inline_shell_payload(segment)
+            if payload:
+                pending.append((_normalize_command(payload), depth + 1))
+    return None
 
 
 def _object(properties: dict, required: list[str] | None = None) -> dict:
@@ -77,11 +161,44 @@ def _resolve_root(runtime: AgentRuntime, session_id: str) -> Path:
     return root
 
 
+def _check_workspace_path_text(text: str, label: str) -> None:
+    """拒绝 Windows 上会被重解释的路径写法：ADS 冒号、设备保留名、空段、控制字符。
+
+    盘符冒号（``C:\\...``）在去掉盘符前缀后仍按"路径内不允许冒号"处理，
+    因此 ``a.txt:stream`` 这类备用数据流写法在绝对/相对路径下都会被拒绝。
+    """
+    if _CONTROL_CHAR.search(text):
+        raise ValueError(f"{label}包含控制字符")
+    drive = _DRIVE_PREFIX.match(text)
+    if drive:
+        remaining = text[2:]
+        if not remaining.startswith(("\\", "/")):
+            raise ValueError(f"{label}不支持盘符相对路径")
+    else:
+        remaining = text
+    if ":" in remaining:
+        raise ValueError(f"{label}不允许冒号（含 Windows 备用数据流）")
+    normalized = remaining.replace("\\", "/")
+    body = normalized.lstrip("/")
+    segments = body.split("/")
+    if any(not segment for segment in segments):
+        raise ValueError(f"{label}包含空路径段")
+    for segment in segments:
+        name = segment.rstrip(" .").split(".", 1)[0].casefold()
+        if name in _RESERVED_DEVICE_NAMES:
+            raise ValueError(f"{label}包含 Windows 设备保留名：{segment}")
+
+
 def _resolve_in_root(root: Path, raw: Any, *, label: str = "路径") -> Path:
-    """把用户给的相对/绝对路径解析为绝对路径并校验位于 root 内。"""
+    """把用户给的相对/绝对路径解析为绝对路径并校验位于 root 内。
+
+    解析前先做 Windows 语义校验（ADS/保留名/空段/控制字符），解析后再用
+    ``resolve()`` 跟随符号链接/目录联接并做 ``is_relative_to`` 越界校验。
+    """
     text = str(raw or "").strip()
-    if not text or "\x00" in text:
+    if not text:
         raise ValueError(f"{label}无效")
+    _check_workspace_path_text(text, label)
     path = Path(text).expanduser()
     if not path.is_absolute():
         path = root / path
@@ -473,9 +590,9 @@ def _shell_run(args: dict[str, Any]) -> dict[str, Any]:
     command = str(args.get("command") or "").strip()
     if not command or "\x00" in command:
         raise ValueError("command 无效")
-    for deny in _DENY_RES:
-        if deny.search(command):
-            raise ValueError(f"命中危险命令 deny 名单（{deny.pattern}），拒绝执行")
+    denied = _deny_rule(command)
+    if denied:
+        raise ValueError(f"命中危险命令 deny 名单（{denied}），拒绝执行")
     cwd = _resolve_in_root(root, args.get("cwd") or ".", label="cwd")
     if not cwd.is_dir():
         raise ValueError("cwd 不是目录")

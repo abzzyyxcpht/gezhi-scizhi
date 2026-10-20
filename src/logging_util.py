@@ -175,10 +175,14 @@ def usage_summary() -> dict[str, Any]:
                "latency_ms": _count(r.get("latency_ms")), "status": _label(r.get("status")),
                "cached_prompt_tokens": _cache_read(r), "cache_reported": _cache_read(r) is not None}
               for r in reversed(models[-8:])]
+    receipts = [r["reasoning"] for r in models
+                if isinstance(r.get("reasoning"), dict)]
     return {"model": model,
             "tool": {"calls": len(tools), "avg_latency_ms": tool_latency // len(tools) if tools else 0,
                      "failures": tool_failures, "by_tool": by_tool},
-            "recent": recent}
+            "recent": recent,
+            "reasoning": {"receipts": receipts, "recorded": len(receipts),
+                          "calls": len(models)}}
 
 
 def _cache_text(stats: dict[str, Any]) -> str:
@@ -189,6 +193,30 @@ def _cache_text(stats: dict[str, Any]) -> str:
     return (f"缓存读取 {read_text}｜写入 {stats['cache_write_tokens']:,}"
             f"｜命中率 {rate_text}｜已报告 {stats['cache_reported_calls']}/{stats['calls']} 次"
             f"｜未知 {stats['cache_unknown_calls']} 次")
+
+
+def format_reasoning_text() -> str:
+    """思考强度三阶段回执的纯文本视图（CLI/TUI 与桌面共用同一份事实）。
+
+    只陈述日志里真实记录的内容：请求了什么、请求是否真的带上了思考参数、
+    供应商有没有回报推理用量。没有记录时就明说没有记录，不按档位猜。
+    """
+    from . import reasoning_receipt as rr
+    summary = usage_summary().get("reasoning") or {}
+    recorded, calls = summary.get("recorded", 0), summary.get("calls", 0)
+    if not recorded:
+        return (f"思考强度：尚无回执记录（模型调用 {calls} 次）。"
+                if calls else "思考强度：尚无模型调用。")
+    lines = [f"思考强度回执：{recorded}/{calls} 次调用留下记录"]
+    for row in rr.rows(summary):
+        parts = [f"{row['calls']} 次", f"实际附带参数 {row['sent']} 次",
+                 f"未附带 {row['omitted']} 次"]
+        if row["reported"]:
+            parts.append(f"回报 {row['reasoning_tokens']:,} tokens（{row['reported']} 次）")
+        if row["silent"]:
+            parts.append(f"供应商未回报 {row['silent']} 次")
+        lines.append(f"  {row['label']}（{row['requested']}）：" + " · ".join(parts))
+    return "\n".join(lines)
 
 
 def format_usage_text() -> str:
@@ -209,6 +237,9 @@ def format_usage_text() -> str:
                          f" / 输出 {group['completion_tokens']:,} / 推理 {group['reasoning_tokens']:,}"
                          f"｜均延迟 {group['avg_latency_ms']}ms｜失败 {group['failures']}")
             lines.append(f"    {_cache_text(group)}")
+    reasoning_text = format_reasoning_text()
+    if reasoning_text:
+        lines.append(reasoning_text)
     if model["by_node"]:
         detail = "  ".join(f"{name}:{value['calls']}次/{value['tokens']:,}tok"
                            for name, value in sorted(model["by_node"].items(),
@@ -228,11 +259,14 @@ def log_model(node: str, route: str, prompt_tokens: int, completion_tokens: int,
               connection_id: str = "", model: str = "", protocol: str = "",
               cached_prompt_tokens: int | None = None, cache_write_tokens: int = 0,
               reasoning_tokens: int = 0, cache_reported: bool = False,
-              prompt_fingerprint: str = "", usage_reported: bool | None = None) -> str:
+              prompt_fingerprint: str = "", usage_reported: bool | None = None,
+              reasoning: dict[str, Any] | None = None) -> str:
     """记录归一化完整输入、缓存读写与实际模型；不保存原始提示词或密钥。
 
     供应商字段解释由 llm 适配器负责；usage_reported=None 为旧调用方未知。
     prompt_key 是模板版本，prompt_fingerprint 只接受调用方已生成的摘要。
+    reasoning 是思考强度的三阶段回执（请求/实际发送/供应商回报），只保留
+    档位、是否真的发送、发送的键名与回报的 token 数，不含提示词内容。
     """
     tid = f"gz-{time.strftime('%Y%m%d')}-{uuid.uuid4().hex[:12]}"
     record = {"prompt_tokens": prompt_tokens, "cached_prompt_tokens": cached_prompt_tokens,
@@ -250,6 +284,7 @@ def log_model(node: str, route: str, prompt_tokens: int, completion_tokens: int,
         "cached_prompt_tokens": cached, "cache_reported": cached is not None,
         "cache_write_tokens": _count(cache_write_tokens), "reasoning_tokens": _count(reasoning_tokens),
         "usage_reported": None if usage_reported is None else valid_usage,
+        "reasoning": reasoning,
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
     })
     return tid

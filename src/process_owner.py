@@ -22,8 +22,9 @@ from typing import BinaryIO, Protocol
 
 class OwnedProcess(Protocol):
     pid: int
+    stdin: BinaryIO | None
     stdout: BinaryIO
-    stderr: BinaryIO
+    stderr: BinaryIO | None
 
     def poll(self) -> int | None: ...
     def stop(self) -> None: ...
@@ -32,13 +33,25 @@ class OwnedProcess(Protocol):
 
 
 class _PosixProcess:
-    def __init__(self, command: str, cwd: Path):
+    def __init__(self, command: str | None, cwd: Path, *, argv: list[str] | None = None,
+                 env: dict[str, str] | None = None, stderr_pipe: bool = True):
+        if argv is None:
+            popen_args: object = command
+            shell = True
+            stdin_target: object = subprocess.DEVNULL
+        else:
+            popen_args = list(argv)
+            shell = False
+            stdin_target = subprocess.PIPE
+        options = {} if env is None else {"env": dict(env)}
         self._process = subprocess.Popen(
-            command, cwd=cwd, shell=True, start_new_session=True,
-            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, bufsize=0, close_fds=True,
+            popen_args, cwd=cwd, shell=shell, start_new_session=True,
+            stdin=stdin_target, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE if stderr_pipe else subprocess.DEVNULL,
+            bufsize=0, close_fds=True, **options,
         )
         self.pid = self._process.pid
+        self.stdin = self._process.stdin
         self.stdout = self._process.stdout
         self.stderr = self._process.stderr
         self._lock = threading.RLock()
@@ -88,8 +101,9 @@ class _PosixProcess:
                 self.stop()
             finally:
                 self._closed = True
-                self.stdout.close()
-                self.stderr.close()
+                for stream in (self.stdin, self.stdout, self.stderr):
+                    if stream is not None:
+                        stream.close()
 
 
 if os.name == "nt":
@@ -198,7 +212,12 @@ if os.name == "nt":
             _winapi.CloseHandle(job)
             raise
 
-    def _create_windows_process(command, cwd, job, child_handles):
+    def _environment_block(environment: dict[str, str]):
+        return ctypes.create_unicode_buffer(''.join(
+            f'{key}={value}\0' for key, value in sorted(environment.items(),
+                                                        key=lambda item: item[0].upper())) + '\0')
+
+    def _create_windows_suspended(executable, command_line, cwd, job, child_handles, environment):
         """Atomically assign Job ownership; return only a suspended process."""
         size = _SIZE_T()
         _initialize_attributes(None, 2, 0, ctypes.byref(size))
@@ -221,32 +240,41 @@ if os.name == "nt":
             startup.StartupInfo.hStdOutput = child_handles[1]
             startup.StartupInfo.hStdError = child_handles[2]
             startup.lpAttributeList = ctypes.addressof(attributes)
-            # Match subprocess's absolute shell resolution, never cwd/PATH.
-            shell = os.environ.get("ComSpec")
-            if not shell or not os.path.isabs(shell):
-                shell = os.path.join(os.environ.get("SystemRoot", ""), "System32", "cmd.exe")
-            if not os.path.isabs(shell):
-                raise FileNotFoundError("An absolute Windows command processor path is required")
-            # This child console uses UTF-8; never change the parent's console.
-            # Python honors redirected-stream encoding separately from chcp.
-            # cmd caches its pipe code page on startup. A nested command shell
-            # must start after chcp to make built-ins such as echo use UTF-8 too.
-            args = ctypes.create_unicode_buffer(f'"{shell}" /d /s /c "chcp 65001 >nul & "{shell}" /d /s /c "{command}""')
-            environment = dict(os.environ, PYTHONIOENCODING='utf-8', PYTHONUTF8='1')
-            environment_block = ctypes.create_unicode_buffer(''.join(
-                f'{key}={value}\0' for key, value in sorted(environment.items(), key=lambda item: item[0].upper())) + '\0')
+            environment_block = _environment_block(environment)
             result = _ProcessInformation()
             flags = (_CREATE_SUSPENDED | subprocess.CREATE_NO_WINDOW | _EXTENDED_STARTUPINFO_PRESENT
                      | 0x400)  # CREATE_UNICODE_ENVIRONMENT
-            _check(_create_process(shell, args, None, None, True, flags,
-                                   environment_block, os.fspath(cwd), ctypes.byref(startup), ctypes.byref(result)))
+            _check(_create_process(executable, command_line, None, None, True, flags,
+                                   environment_block, os.fspath(cwd), ctypes.byref(startup),
+                                   ctypes.byref(result)))
             return result.hProcess, result.hThread, result.dwProcessId
         finally:
             _delete_attributes(attributes)
 
+    def _create_windows_process(command, cwd, job, child_handles):
+        """Shell-owned spawn: match subprocess's absolute shell resolution, never cwd/PATH."""
+        shell = os.environ.get("ComSpec")
+        if not shell or not os.path.isabs(shell):
+            shell = os.path.join(os.environ.get("SystemRoot", ""), "System32", "cmd.exe")
+        if not os.path.isabs(shell):
+            raise FileNotFoundError("An absolute Windows command processor path is required")
+        # This child console uses UTF-8; never change the parent's console.
+        # Python honors redirected-stream encoding separately from chcp.
+        # cmd caches its pipe code page on startup. A nested command shell
+        # must start after chcp to make built-ins such as echo use UTF-8 too.
+        args = ctypes.create_unicode_buffer(f'"{shell}" /d /s /c "chcp 65001 >nul & "{shell}" /d /s /c "{command}""')
+        environment = dict(os.environ, PYTHONIOENCODING='utf-8', PYTHONUTF8='1')
+        return _create_windows_suspended(shell, args, cwd, job, child_handles, environment)
+
+    def _create_windows_argv(argv, cwd, job, child_handles, environment):
+        """Argv-owned spawn: no shell, first token resolved by CreateProcess like subprocess."""
+        command_line = ctypes.create_unicode_buffer(subprocess.list2cmdline(list(argv)))
+        return _create_windows_suspended(None, command_line, cwd, job, child_handles, environment)
+
     class _WindowsProcess:
-        def __init__(self, pid, process_handle, job, stdout, stderr):
+        def __init__(self, pid, process_handle, job, stdout, stderr, stdin=None):
             self.pid = pid
+            self.stdin = stdin
             self.stdout = stdout
             self.stderr = stderr
             self._process_handle = process_handle
@@ -304,39 +332,59 @@ if os.name == "nt":
                         _winapi.CloseHandle(self._process_handle)
                         self._process_handle = None
                     self._closed = True
-                    self.stdout.close()
-                    self.stderr.close()
+                    for stream in (self.stdin, self.stdout, self.stderr):
+                        if stream is not None:
+                            stream.close()
 
-    def _spawn_windows(command: str, cwd: Path) -> _WindowsProcess:
+    def _spawn_windows_process(cwd: Path, *, stdin_pipe: bool, stderr_pipe: bool, create):
+        """Build pipes, spawn suspended under Job ownership, then resume the tree leader."""
         job = _create_job()
         fds = []
         streams = []
         process_handle = thread_handle = None
         try:
-            stdin_fd = os.open(os.devnull, os.O_RDONLY)
-            fds.append(stdin_fd)
+            if stdin_pipe:
+                stdin_child, stdin_parent = os.pipe()
+                fds.extend((stdin_child, stdin_parent))
+            else:
+                stdin_child, stdin_parent = os.open(os.devnull, os.O_RDONLY), None
+                fds.append(stdin_child)
             out_read, out_write = os.pipe()
             fds.extend((out_read, out_write))
-            err_read, err_write = os.pipe()
-            fds.extend((err_read, err_write))
-            handles = [msvcrt.get_osfhandle(fd) for fd in (stdin_fd, out_write, err_write)]
+            if stderr_pipe:
+                err_read, err_write = os.pipe()
+                fds.extend((err_read, err_write))
+                err_child, err_parent = err_write, err_read
+            else:
+                err_child, err_parent = os.open(os.devnull, os.O_WRONLY), None
+                fds.append(err_child)
+            handles = [msvcrt.get_osfhandle(fd) for fd in (stdin_child, out_write, err_child)]
             # All module spawns share the narrow inheritable-handle window;
             # HANDLE_LIST prevents sibling jobs from inheriting these pipes.
             with _spawn_lock:
                 try:
                     for handle in handles:
                         os.set_handle_inheritable(handle, True)
-                    process_handle, thread_handle, pid = _create_windows_process(command, cwd, job, handles)
+                    process_handle, thread_handle, pid = create(job, handles)
                 finally:
                     for handle in handles:
                         os.set_handle_inheritable(handle, False)
-            for fd in (stdin_fd, out_write, err_write):
+            for fd in (stdin_child, out_write, err_child):
                 os.close(fd)
                 fds.remove(fd)
-            for fd in (out_read, err_read):
-                stream = os.fdopen(fd, "rb", buffering=0)
-                fds.remove(fd)
-                streams.append(stream)
+            stdin_stream = None
+            if stdin_parent is not None:
+                stdin_stream = os.fdopen(stdin_parent, "wb", buffering=0)
+                fds.remove(stdin_parent)
+                streams.append(stdin_stream)
+            stdout_stream = os.fdopen(out_read, "rb", buffering=0)
+            fds.remove(out_read)
+            streams.append(stdout_stream)
+            stderr_stream = None
+            if err_parent is not None:
+                stderr_stream = os.fdopen(err_parent, "rb", buffering=0)
+                fds.remove(err_parent)
+                streams.append(stderr_stream)
             resumed = _resume_thread(thread_handle)
             if resumed != 1:
                 if resumed == 0xFFFFFFFF:
@@ -344,7 +392,8 @@ if os.name == "nt":
                 raise OSError(f"Unexpected primary thread suspend count: {resumed}")
             _winapi.CloseHandle(thread_handle)
             thread_handle = None
-            return _WindowsProcess(pid, process_handle, job, *streams)
+            return _WindowsProcess(pid, process_handle, job, stdout_stream, stderr_stream,
+                                   stdin_stream)
         except BaseException:
             # Even ResumeThread/setup errors retain kernel ownership.
             _terminate_job(job, 1)
@@ -364,6 +413,18 @@ if os.name == "nt":
                 os.close(fd)
             raise
 
+    def _spawn_windows(command: str, cwd: Path) -> _WindowsProcess:
+        return _spawn_windows_process(
+            cwd, stdin_pipe=False, stderr_pipe=True,
+            create=lambda job, handles: _create_windows_process(command, cwd, job, handles))
+
+    def _spawn_windows_argv(argv: list[str], cwd: Path,
+                            environment: dict[str, str] | None) -> _WindowsProcess:
+        env = dict(os.environ) if environment is None else dict(environment)
+        return _spawn_windows_process(
+            cwd, stdin_pipe=True, stderr_pipe=False,
+            create=lambda job, handles: _create_windows_argv(argv, cwd, job, handles, env))
+
 
 def spawn_owned(command: str, cwd: Path) -> OwnedProcess:
     """Launch a shell command with binary pipes and ownership from first run."""
@@ -372,3 +433,23 @@ def spawn_owned(command: str, cwd: Path) -> OwnedProcess:
     if os.name == "nt":
         return _spawn_windows(command, Path(cwd))
     return _PosixProcess(command, Path(cwd))
+
+
+def spawn_owned_argv(argv, cwd: Path, *, env: dict[str, str] | None = None) -> OwnedProcess:
+    """Launch an argv without a shell, with piped stdin/stdout and owned tree.
+
+    Same ownership guarantee as :func:`spawn_owned` (Windows Job object
+    kill-on-close / POSIX new session), but the process is created directly so
+    the caller can speak a line protocol over ``stdin``/``stdout``. stderr is
+    discarded to prevent a chatty child from blocking on an undrained pipe.
+    """
+    if not isinstance(argv, (list, tuple)) or not argv:
+        raise ValueError("argv must be a non-empty sequence of strings")
+    if any(not isinstance(item, str) or "\x00" in item for item in argv):
+        raise ValueError("argv entries must be strings without NUL bytes")
+    if not argv[0]:
+        raise ValueError("argv[0] must be a non-empty executable name or path")
+    resolved = Path(cwd)
+    if os.name == "nt":
+        return _spawn_windows_argv(list(argv), resolved, env)
+    return _PosixProcess(None, resolved, argv=list(argv), env=env, stderr_pipe=False)

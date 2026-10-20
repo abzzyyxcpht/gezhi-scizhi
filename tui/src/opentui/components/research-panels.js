@@ -1,7 +1,7 @@
 // 科研分析面板组（创新层）
 // 假设排行榜（Elo 式竞争排序）· 共识计量条 · 证据矩阵 · 实验树
 // 数据全部来自既有 bridge 命令（notebook_list / evidence_brief），Python 端零改动；
-// 纯函数导出供无终端单测，组件遵循"组件不写字面量颜色"规范（docs/tui-design-spec.md）
+// 纯函数导出供无终端单测，组件遵循"组件不写字面量颜色"规范（根目录 DESIGN.md）
 import React from "react"
 import { TOKENS } from "../theme/tokens.js"
 import { SYMBOLS } from "../theme/symbols.js"

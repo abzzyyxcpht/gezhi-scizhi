@@ -68,7 +68,7 @@ class HttpMcpTest(unittest.TestCase):
         return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": result})
 
     def test_configuration_redacts_headers_and_preserves_omitted_or_null_secrets_without_network(self):
-        with mock.patch.object(httpx, "Client") as client, mock.patch.object(mcp.subprocess, "Popen") as process:
+        with mock.patch.object(httpx, "Client") as client, mock.patch.object(mcp, "spawn_owned_argv") as process:
             response = self.save()
             public = response["servers"][0]
             self.assertIsNone(public["headers"]["Authorization"])
@@ -186,7 +186,7 @@ class HttpMcpTest(unittest.TestCase):
 
     def test_disabled_http_servers_cannot_create_connections_or_processes(self):
         self.save(enabled=False, autoload=True)
-        with mock.patch.object(httpx, "Client") as client, mock.patch.object(mcp.subprocess, "Popen") as process:
+        with mock.patch.object(httpx, "Client") as client, mock.patch.object(mcp, "spawn_owned_argv") as process:
             self.assertFalse(mcp.probe_named("remote")["ok"])
             self.assertFalse(mcp.call_named("remote", "echo")["ok"])
             self.assertFalse(mcp.status_all()[0]["ok"])

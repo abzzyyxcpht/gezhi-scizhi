@@ -9,7 +9,7 @@ import copy
 import hashlib
 import json
 
-from . import model_protocols, model_registry, settings
+from . import model_protocols, model_registry, reasoning_receipt, settings
 from .workbench import redact
 
 
@@ -30,13 +30,22 @@ def _item(profile_id, profile):
     efforts = []
     for value in model_registry.EFFORTS:
         candidate = {**profile, "reasoning_effort": value}
+        wire, state = [], "unsupported"
         try:
             cap = int(candidate.get("max_output_tokens") or 8192)
-            model_protocols.thinking(candidate, max(1, min(cap, 2048)))
+            visible = max(1, min(cap, 2048))
+            controls, total, _exclude_temp = model_protocols.thinking(candidate, visible)
             enabled, reason = True, ""
+            # Describe the controls the adapter just produced, so the dialog can
+            # preview the parameter that will really be sent - not the dial label.
+            receipt = reasoning_receipt.describe(candidate, controls,
+                                                 reserved=max(0, total - visible),
+                                                 total_limit=total)
+            wire, state = receipt["wire"], receipt["state"]
         except (ValueError, TypeError, KeyError) as error:
             enabled, reason = False, redact(str(error))[:180]
-        efforts.append({"value": value, "enabled": enabled, "reason": reason})
+        efforts.append({"value": value, "enabled": enabled, "reason": reason,
+                        "wire": wire, "state": state})
     return {"id": profile_id, "label": redact(str(profile.get("label") or ("默认连接" if profile_id == "legacy" else profile_id)))[:80],
             "model": redact(str(profile.get("model") or ""))[:120],
             "connection_id": profile.get("connection_id", "legacy"),

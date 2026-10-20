@@ -162,6 +162,8 @@ class ControlsAndHooksTest(McpConfigurationTest):
             client.assert_not_called()
 
     def test_control_host_and_runtime_execute_bound_server(self):
+        # control.call 属 full-access 档；入口权限兜底启用后须显式补齐档位。
+        self.preferences["agent_permission_tier"] = "full-access"
         self.assertTrue(self.bind_browser()["ok"])
         host = self.controls.handle({"cmd": "control_call", "kind": "browser",
                                      "tool": "echo", "arguments": {"text": "host"}})
@@ -198,6 +200,9 @@ class ControlsAndHooksTest(McpConfigurationTest):
                          {"kind": ["browser"], "server": "browser", "tool": "echo"}), "deny")
 
     def test_binding_changed_after_permission_prompt_does_not_redirect_call(self):
+        # 保留原意（绑定漂移不得改道），先补齐 control.call 的 full-access 档位，
+        # 否则会被三档门提前拒绝，测不到绑定校验本身。
+        self.preferences["agent_permission_tier"] = "full-access"
         self.bind_browser()
         self.command("mcp_save", server={"name": "second", "command": sys.executable})
         self.controls.handle({"cmd": "control_save", "kind": "browser",

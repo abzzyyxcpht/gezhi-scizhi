@@ -9,6 +9,7 @@ import flet as ft
 
 from .. import service
 from .theme import palette as p, radius, style_inputs, motion_duration
+from .effort_feedback import EffortFeedback
 
 
 STATUS = {"draft": "草稿", "planned": "计划就绪", "running": "运行中", "pending": "排队中",
@@ -35,21 +36,13 @@ class ReasoningControl:
         "xhigh": ("超高", "更深入的多步分析"),
         "max": ("最高", "最高强度偏好，留意耗时与用量"),
     }
-    SHAPES = {"minimal": (2, 4, 6, 4, 2), "low": (4, 8, 12, 8, 4),
-              "medium": (6, 12, 18, 12, 6), "high": (8, 16, 24, 16, 8),
-              "xhigh": (12, 20, 24, 20, 12), "max": (20, 24, 24, 24, 20)}
+    SHAPES = EffortFeedback.SHAPES
 
     def __init__(self, page, value="auto", save: Callable | None = None, motion=lambda: True, changed=None):
         self.page, self.value, self.save, self.motion, self.changed = page, value, save, motion, changed
-        self.bars = [ft.Container(width=3, height=8, border_radius=3, bgcolor=p.ACCENT_TEXT) for _ in range(5)]
-        self.bar_slots = [ft.Container(content=bar, width=3, height=24,
-            alignment=ft.Alignment.CENTER) for bar in self.bars]
-        self.dots = [ft.Container(width=3, height=3, border_radius=3, bgcolor=p.ACCENT_TEXT) for _ in range(5)]
-        self.off_mark = ft.Icon(ft.Icons.REMOVE_CIRCLE_OUTLINED, size=18, color=p.TEXT_3)
-        self.glyph = ft.Stack([ft.Row(items, spacing=3, height=30,
-            alignment=ft.MainAxisAlignment.CENTER, vertical_alignment=ft.CrossAxisAlignment.CENTER)
-            for items in (self.bar_slots, self.dots)] + [ft.Container(self.off_mark,
-                width=34, height=30, alignment=ft.Alignment.CENTER)], width=34, height=30)
+        self.feedback = EffortFeedback(page, value=value, motion=lambda: self.motion())
+        self.bars, self.bar_slots = self.feedback.bars, self.feedback.bar_slots
+        self.dots, self.off_mark, self.glyph = self.feedback.dots, self.feedback.off_mark, self.feedback.content
         self.labels = {key: ft.Text(label, size=12, text_align=ft.TextAlign.CENTER)
                        for key, label in self.CHOICES.items()}
         self.buttons = {key: ft.TextButton(self.labels[key], width=56, height=30,
@@ -57,7 +50,11 @@ class ReasoningControl:
             on_click=lambda e, k=key: self.choose(k)) for key, label in self.CHOICES.items()}
         self.segments = {key: ft.Container(content=button, border_radius=radius('control'))
                          for key, button in self.buttons.items()}
-        self.track = ft.Container(content=ft.Row(list(self.segments.values()), spacing=2, tight=True),
+        self.selection = ft.Container(width=56, height=30, left=0, top=0,
+            border_radius=radius('control'), bgcolor=p.ACTIVE)
+        self.button_row = ft.Row(list(self.segments.values()), spacing=2, tight=True)
+        self.track = ft.Container(content=ft.Stack([self.selection, self.button_row],
+            width=230, height=30, clip_behavior=ft.ClipBehavior.HARD_EDGE),
             padding=3, border_radius=radius('control'), bgcolor=p.SURFACE_3, border=ft.Border.all(1, p.BORDER))
         self.advanced_items = {key: ft.PopupMenuItem(content=ft.Column([
             ft.Row([ft.Text(label, size=12, weight=ft.FontWeight.W_500, expand=True),
@@ -74,9 +71,14 @@ class ReasoningControl:
             padding=0, width=128, height=34, shape=ft.RoundedRectangleBorder(radius=radius('control')))
         self.note = ft.Text(size=11, color=p.TEXT_3, max_lines=2,
                             overflow=ft.TextOverflow.ELLIPSIS)
+        # The dial shows the saved preference; this line shows what the last
+        # request actually carried and what the provider reported back.
+        self.trail = ft.Text(size=11, color=p.TEXT_3, max_lines=2, visible=False,
+                             overflow=ft.TextOverflow.ELLIPSIS)
         self.content = ft.Column([
             ft.Row([ft.Row([self.glyph, ft.Text("思考强度", size=12, color=p.TEXT_2)], spacing=6, tight=True),
-                    self.track, self.advanced], spacing=8, run_spacing=4, wrap=True), self.note], spacing=5)
+                    self.track, self.advanced], spacing=8, run_spacing=4, wrap=True),
+            self.note, self.trail], spacing=5)
         self.refresh(value)
 
     def motion_enabled(self):
@@ -86,11 +88,15 @@ class ReasoningControl:
         if value is not None:
             self.value = value
         self.track.bgcolor, self.track.border = p.SURFACE_3, ft.Border.all(1, p.BORDER)
+        self.selection.bgcolor = p.ACTIVE
+        self.selection.opacity = 1 if self.value in self.CHOICES else 0
+        if self.value in self.CHOICES:
+            self.selection.left = tuple(self.CHOICES).index(self.value) * 58
         for key, button in self.buttons.items():
             selected = key == self.value
             self.labels[key].color = p.ACCENT_TEXT if selected else p.TEXT_2
             self.labels[key].weight = ft.FontWeight.W_600 if selected else ft.FontWeight.W_400
-            self.segments[key].bgcolor = p.ACTIVE if selected else "transparent"
+            self.segments[key].bgcolor = "transparent"
             button.style = ft.ButtonStyle(color=p.ACCENT_TEXT if selected else p.TEXT_2,
                 bgcolor="transparent", shape=ft.RoundedRectangleBorder(radius=radius('control')),
                 padding=ft.Padding(8, 0, 8, 0), overlay_color=p.HOVER,
@@ -113,16 +119,15 @@ class ReasoningControl:
         prefix = "已保存 · " if confirmed else ""
         self.note.value = f"{prefix}{label}（{self.value}）· {self.use_hint}。默认模型新配置；独立模型配置另设。"
         self.note.color = p.TEXT_3
+        self.feedback.refresh(self.value, confirmed=confirmed)
         self.pulse(0, active=False)
 
     def pulse(self, frame: int, active: bool):
         enabled = self.motion_enabled()
-        known = self.value in self.EFFORTS
-        automatic = self.value == "auto"
-        off = self.value == "off"
         panel_ms = motion_duration('panel') if enabled else 0
         feedback_ms = motion_duration('feedback') if enabled else 0
         transition = ft.Animation(panel_ms, ft.AnimationCurve.EASE_OUT_CUBIC) if panel_ms else None
+        self.selection.animate_position = transition
         for segment in self.segments.values():
             segment.animate = transition
         for button in self.buttons.values():
@@ -133,23 +138,20 @@ class ReasoningControl:
         self.advanced.popup_animation_style = ft.AnimationStyle(
             duration=panel_ms, reverse_duration=feedback_ms, curve=ft.AnimationCurve.EASE_OUT_CUBIC
         ) if enabled else ft.AnimationStyle.no_animation()
-        self.off_mark.opacity = 1 if off else 0
-        self.off_mark.color = p.TEXT_3
-        for i, bar in enumerate(self.bars):
-            # Native Flet 0.86.5 animate_scale does not render per-axis Scale
-            # reliably. Animate the inner fill; its outer slot stays 3x24.
-            bar.animate = bar.animate_opacity = transition
-            bar.height = self.SHAPES.get(self.value, (2, 2, 2, 2, 2))[i]
-            bar.bgcolor = p.ACCENT_TEXT
-            intensity = (1 if (frame + i) % 5 in (1, 2) else .45) if active and enabled else .85
-            bar.opacity = 0 if automatic or off or not known else intensity
-            dot = self.dots[i]
-            dot.animate_opacity = transition
-            dot.bgcolor = p.ACCENT_TEXT
-            dot.opacity = .45 if not known else intensity if automatic else 0
+        self.feedback.pulse(frame, active=active)
+
+    def show_trail(self, receipt: dict | None):
+        """Render the recorded effort trail; never guesses or repaints by itself."""
+        from .. import reasoning_receipt as rr
+        text = rr.summary(receipt)
+        if isinstance(receipt, dict) and receipt.get("state") == "unsupported":
+            text = f"{text}：{receipt.get('reason') or '本地适配器未发送'}"
+        self.trail.value = text
+        self.trail.color = p.TEXT_3 if isinstance(receipt, dict) and receipt else p.TEXT_2
+        self.trail.visible = True
 
     def choose(self, value: str):
-        if value not in self.EFFORTS:
+        if value not in self.EFFORTS or value == self.value:
             return
         try:
             if self.save:

@@ -5,6 +5,7 @@ import flet as ft
 
 from ..bridge import handle
 from ..workbench import redact
+from .effort_feedback import EffortFeedback
 from .theme import palette as p, style_inputs
 
 STAGES = {"default": "默认用途", "planning": "智能体规划", "extraction": "信息抽取", "synthesis": "综述生成", "review": "证据审查", "fast": "快速任务", "strong": "复杂任务"}
@@ -18,14 +19,18 @@ class ModelControlPanel:
         self.snapshot, self.opened, self.sequence, self.busy = None, False, 0, False
         self.stage = ft.Dropdown(label="科研阶段", value="planning", options=[ft.dropdown.Option(k, v) for k, v in STAGES.items()], on_select=lambda e: self.load())
         self.profile = ft.Dropdown(label="模型配置", options=[], on_select=lambda e: self.select_profile())
-        self.effort = ft.Dropdown(label="该模型配置的思考强度", options=[])
+        self.effort = ft.Dropdown(label="该模型配置的思考强度", options=[],
+                                  on_select=lambda e: self.preview_effort())
+        self.feedback = EffortFeedback(page)
+        self.preview_note = ft.Text("", size=12, color=p.TEXT_2, expand=True)
+        self.preview = ft.Row([self.feedback.content, self.preview_note], spacing=10)
         self.summary = ft.Text("读取模型配置…", size=13, color=p.TEXT, max_lines=2)
         self.scope = ft.Text("保存用于后续请求。已有模型会话若检测到配置变化会停止，需新建或分叉；请先完成或停止当前执行。", size=11, color=p.WARN)
         self.notes = ft.Text("", size=11, color=p.TEXT_3, max_lines=6)
         self.message = ft.Text("", size=12, color=p.TEXT_2)
         self.apply_button = ft.FilledButton("保存阶段与思考设置", icon=ft.Icons.CHECK, disabled=True, on_click=lambda e: self.apply())
         self.body = ft.Container(width=560, content=ft.Column([
-            self.summary, self.stage, self.profile, self.effort, self.scope, self.notes,
+            self.summary, self.stage, self.profile, self.effort, self.preview, self.scope, self.notes,
             self.message, ft.Row([ft.TextButton("刷新", icon=ft.Icons.REFRESH, on_click=lambda e: self.load()), self.apply_button], wrap=True)
         ], spacing=12, scroll=ft.ScrollMode.AUTO, tight=True), padding=4)
         self.dialog = ft.AlertDialog(title=ft.Text("科研模型 · 选择与思考", size=20), content=self.body,
@@ -44,6 +49,7 @@ class ModelControlPanel:
     def dismiss(self):
         self.opened, self.busy = False, False
         self.sequence += 1
+        self.feedback.clear_feedback()
 
     def close(self):
         self.dismiss()
@@ -51,7 +57,53 @@ class ModelControlPanel:
 
     def _enabled(self):
         self.stage.disabled = self.profile.disabled = self.effort.disabled = self.busy
-        self.apply_button.disabled = self.busy or not self.snapshot
+        self.apply_button.disabled = self.busy or not self.snapshot or not self._valid_effort()
+
+    def _valid_effort(self):
+        target = next((row for row in (self.snapshot or {}).get("items", [])
+                       if row["id"] == self.profile.value), None)
+        return target is not None and any(row["enabled"] and row["value"] == self.effort.value
+                                         for row in target["efforts"])
+
+    def _effort_row(self):
+        target = next((row for row in (self.snapshot or {}).get("items", [])
+                       if row["id"] == self.profile.value), None)
+        if target is None:
+            return None
+        return next((row for row in target["efforts"]
+                     if row["value"] == self.effort.value), None)
+
+    @staticmethod
+    def _wire_text(row) -> str:
+        """What the adapter will actually put on the wire for this level."""
+        if not isinstance(row, dict):
+            return ""
+        state = row.get("state")
+        wire = row.get("wire") or []
+        if state == "sent" and wire:
+            return "将发送 " + "、".join(f"{item['key']}={item['value']}" for item in wire)
+        if state == "budget":
+            return "将以 token 预算表达（非等级名）"
+        if state == "omitted":
+            return "请求不附带思考参数"
+        return ""
+
+    def preview_effort(self):
+        if self.busy:
+            return
+        self.feedback.refresh(self.effort.value or "unknown")
+        if self._valid_effort():
+            wire = self._wire_text(self._effort_row())
+            label = EFFORTS.get(self.effort.value, self.effort.value)
+            self.preview_note.value = (f"选择预览 · {label} · {wire} · 尚未保存"
+                                       if wire else f"选择预览 · {label} · 尚未保存")
+        else:
+            row = self._effort_row()
+            reason = (row or {}).get("reason") or ""
+            self.preview_note.value = (f"该档位不会被发送：{reason}" if reason
+                                       else "请选择该模型可用的思考档位")
+        self._enabled()
+        self.page.update()
 
     def _accept(self, catalog):
         if not isinstance(catalog, dict) or catalog.get("stage") != self.stage.value:
@@ -71,11 +123,18 @@ class ModelControlPanel:
         accepted = [row for row in target["efforts"] if row["enabled"]]
         self.effort.options = [ft.dropdown.Option(row["value"], EFFORTS.get(row["value"], row["value"])) for row in accepted]
         values = {row["value"] for row in accepted}
-        self.effort.value = target["reasoning_effort"] if target["reasoning_effort"] in values else "auto"
+        self.effort.value = target["reasoning_effort"] if target["reasoning_effort"] in values else None
+        self.feedback.refresh(target["reasoning_effort"])
+        stored_wire = self._wire_text(self._effort_row())
+        self.preview_note.value = (
+            f"已存档位 · {EFFORTS.get(self.effort.value, self.effort.value)}"
+            + (f" · {stored_wire}" if stored_wire else "")
+            if self.effort.value is not None else "已存档位不可用，请重新选择")
         self.summary.value = f"{target['model'] or '模型未配置'} · {PROTOCOLS.get(target['protocol'], target['protocol'])} · {target['label']}"
         omitted = list(dict.fromkeys(row['reason'].replace('thinking_style', '思考方式').replace('reasoning_effort', '思考强度') for row in target["efforts"] if not row["enabled"]))
         self.notes.value = "档位仅经本地适配器校验，供应商能力尚未验证。" + ("\n" + "\n".join(omitted[:2]) if omitted else "")
         self.message.value = "" if target["reasoning_effort"] in values else "当前强度无法通过适配器校验，保存时请选择可用档位。"
+        self._enabled()
         if update:
             self.page.update()
 
@@ -105,16 +164,22 @@ class ModelControlPanel:
 
     def load(self):
         self.snapshot = None
+        self.feedback.clear_feedback()
         self.message.value, self.message.color = "读取模型配置…", p.TEXT_2
         self._request({"cmd": "model_control_catalog", "stage": self.stage.value}, self._accept)
 
     def apply(self):
-        if self.busy or not self.snapshot:
+        if self.busy or not self.snapshot or not self._valid_effort():
             return
+        before = next(row["reasoning_effort"] for row in self.snapshot["items"]
+                      if row["id"] == self.profile.value)
         request = {"cmd": "model_control_apply", "stage": self.stage.value, "profile_id": self.profile.value,
                    "effort": self.effort.value, "expected_revision": self.snapshot["revision"]}
         def accept(catalog):
             self._accept(catalog)
+            if self.effort.value != before and self.effort.value == request["effort"]:
+                self.feedback.confirm()
+            self.preview_note.value = f"已保存 · {EFFORTS.get(self.effort.value, self.effort.value)} · 用于后续请求"
             self.message.value, self.message.color = "已保存 · 后续科研请求使用所选配置", p.SUCCESS
             self.on_saved()
         self._request(request, accept)

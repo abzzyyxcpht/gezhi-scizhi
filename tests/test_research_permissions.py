@@ -22,11 +22,16 @@ def _settings(**overrides):
 
 class ClassifyTest(unittest.TestCase):
     def test_shell_and_control_are_code_risk_full_access(self):
-        for tool in ("shell.run", "control.call", "mcp.call"):
+        for tool in ("shell.run", "control.call", "mcp.call", "plugin.call"):
             action = classify(tool, "write", {"command": "ls", "path": "/x"})
             self.assertEqual(action["tier"], "full-access", tool)
             self.assertEqual(action["risk"], "code", tool)
             self.assertFalse(action["reversible"], tool)
+
+    def test_mcp_describe_discloses_that_a_process_starts(self):
+        action = classify("mcp.describe", "external", {"server": "demo"})
+        self.assertEqual(action["tier"], "workspace-write")
+        self.assertIn("进程", action["impact"])
 
     def test_workspace_writes_are_data_risk_with_target_detail(self):
         action = classify("file.write", "write", {"path": "notes/实验.md"})
@@ -75,6 +80,14 @@ class TierMathTest(unittest.TestCase):
         self.assertEqual(verdict, "deny")
         self.assertIn("完全访问", action["denied_because"])
         self.assertIn("代码", action["denied_because"])
+
+    def test_plugin_call_requires_full_access(self):
+        # 插件命令是任意 Python：默认「工作区写入」档位必须拦下它，
+        # 不能像普通文件写入那样只要求工作区写入档位。
+        verdict, action = gate("plugin.call", "write", {"name": "term_freq"},
+                               "workspace-write")
+        self.assertEqual(verdict, "deny")
+        self.assertIn("完全访问", action["denied_because"])
 
     def test_render_text_lists_matrix_and_boundary(self):
         text = render_text("read-only")

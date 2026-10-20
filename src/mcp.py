@@ -21,10 +21,10 @@ from __future__ import annotations
 
 import json
 import codecs
+import io
 import os
 import re
 import shutil
-import subprocess
 import threading
 import time
 from pathlib import Path
@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     import httpx
 
 from . import config
+from .process_owner import spawn_owned_argv
 
 PROTOCOL_VERSION = "2024-11-05"
 HTTP_PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26")
@@ -43,6 +44,29 @@ CONFIG_PATH = config.DATA_DIR / "mcp_servers.json"
 _OWNED_ACTIONS: dict[str, Any] = {}
 _REGISTRATION_LOCK = threading.RLock()
 _CONFIG_LOCK = threading.RLock()
+
+# stdio MCP 子进程的最小环境白名单：父进程的模型/检索 API key（如
+# GEZHI_LLM_API_KEY）不应被任意第三方 MCP server 读取。server.env 里显式
+# 配置的变量仍会注入——那是配置者明确授予该 server 的凭据。
+_CHILD_ENV_ALLOWLIST = frozenset({
+    "PATH", "PATHEXT", "COMSPEC", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR",
+    "TEMP", "TMP", "TMPDIR", "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH",
+    "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "PROGRAMFILES",
+    "PROGRAMFILES(X86)", "PROGRAMW6432", "COMMONPROGRAMFILES",
+    "COMMONPROGRAMFILES(X86)", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE",
+    "PROCESSOR_IDENTIFIER", "OS", "LANG", "LC_ALL", "LC_CTYPE",
+    "PYTHONIOENCODING", "PYTHONUTF8", "SSL_CERT_FILE", "SSL_CERT_DIR",
+    "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "NODE_EXTRA_CA_CERTS",
+    "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
+})
+
+
+def _child_env(server: dict[str, Any]) -> dict[str, str]:
+    """只继承运行 MCP server 所需的最小环境，再叠加配置里的 server.env。"""
+    env = {key: value for key, value in os.environ.items()
+           if key.upper() in _CHILD_ENV_ALLOWLIST}
+    env.update({str(key): str(value) for key, value in (server.get("env") or {}).items()})
+    return env
 
 
 def _validate_server(value: Any, previous: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -254,7 +278,12 @@ def _close_quietly(client: Any) -> None:
 
 
 class Client:
-    """单会话客户端：spawn 子进程 → initialize → 调用 → close。"""
+    """单会话客户端：spawn 子进程 → initialize → 调用 → close。
+
+    stdio 子进程经 ``process_owner.spawn_owned_argv`` 启动：Windows 下从第一条
+    指令起归属 kill-on-close Job Object，POSIX 下是独立会话/进程组，close 会
+    终止整棵进程树（npx→node 后代不残留）。环境只给最小白名单 + server.env。
+    """
 
     def __new__(cls, server: dict[str, Any], timeout: float = 10.0):
         # Keep Client a class: integrations already subclass it and tests use
@@ -270,12 +299,13 @@ class Client:
         server = _validate_server(server)
         self.server = server
         self.timeout = timeout
-        env = {**os.environ, **(server.get("env") or {})}
-        self._proc = subprocess.Popen(
-            [server["command"], *server.get("args", [])],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL, text=True, encoding="utf-8",
-            errors="replace", env=env)
+        self._proc = spawn_owned_argv(
+            [server["command"], *server.get("args", [])], Path.cwd(), env=_child_env(server))
+        # process_owner 暴露二进制管道；MCP 走 UTF-8 文本行协议。
+        self._proc.stdin = io.TextIOWrapper(
+            self._proc.stdin, encoding="utf-8", errors="replace", write_through=True)
+        self._proc.stdout = io.TextIOWrapper(
+            self._proc.stdout, encoding="utf-8", errors="replace")
         self._id = 0
         self._lock = threading.Lock()
 
@@ -374,14 +404,14 @@ class Client:
     def close(self) -> None:
         try:
             if self._proc.stdin:
-                self._proc.stdin.close()
-            self._proc.wait(timeout=3)
-        except Exception:  # noqa: BLE001
-            self._proc.kill()
-            self._proc.wait(timeout=3)
+                try:
+                    self._proc.stdin.close()
+                except Exception:  # noqa: BLE001
+                    pass
         finally:
-            if self._proc.stdout:
-                self._proc.stdout.close()
+            # process_owner.close() 会终止拥有的 Job/进程组并关闭全部管道：
+            # 超时/异常退出后 npx→node 一类后代不会残留。
+            self._proc.close()
 
 
 class _HttpSessionExpired(RuntimeError):

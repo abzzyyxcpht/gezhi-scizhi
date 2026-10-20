@@ -485,6 +485,7 @@ def _handle(req: dict[str, Any]) -> dict[str, Any]:
         if cmd == "usage":
             from . import logging_util
             return _ok(usage=logging_util.usage_summary(),
+                       reasoning=logging_util.usage_summary().get("reasoning", {}),
                        text=logging_util.format_usage_text())
         if cmd == "agents":
             return _ok(agents=_runtime().list_agents())

@@ -4,7 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.agent_runtime import MAX_STEPS, AgentRuntime
+from src.agent_driver import AdaptiveDriver
+from src.agent_runtime import MAX_STEPS, AgentRuntime, SessionStore
 
 
 class ScriptedRuntime(AgentRuntime):
@@ -241,6 +242,116 @@ class AgentSessionSafetyTest(unittest.TestCase):
         result = runtime.start("Reject an oversized plan")
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["reason"], "doom_loop")
+        self.assertEqual(self.calls, [])
+
+
+class DisplayRedactionTest(unittest.TestCase):
+    """C：event_page 只对显示层脱敏，原始日志与审批回放保留原参数。"""
+
+    def test_event_page_redacts_arguments_while_approval_replay_keeps_raw(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = AgentRuntime(session_root=Path(directory))
+            seen = []
+
+            def handler(args):
+                seen.append(dict(args))
+                return {"ok": True}
+
+            runtime._register("fixture.secret", "write", "fixture", handler)
+            store = runtime.sessions
+            sid, call_id = "redact01", "call-secret"
+            secret_arguments = {"api_key": "sk-live-secret-1234567890",
+                                "note": "password=hunter2"}
+            store.append(sid, "user_message", {"text": "带凭据的调用", "mode": "agent"})
+            store.append(sid, "plan_created", {"plan": {"steps": [
+                {"tool": "fixture.secret", "arguments": secret_arguments}]}})
+            store.append(sid, "permission_requested",
+                         {"tool": "fixture.secret", "tool_call_id": call_id,
+                          "capability": "write", "arguments": secret_arguments,
+                          "step_index": 0})
+            self.assertIn("sk-live-secret-1234567890",
+                          store._path(sid).read_text(encoding="utf-8"))
+            recovered = runtime._recover_pending(sid, call_id)
+            self.assertIsNotNone(recovered)
+            self.assertEqual(recovered[1].arguments, secret_arguments)
+
+            page = store.event_page(sid, limit=50)
+            shown = json.dumps(page, ensure_ascii=False)
+            self.assertNotIn("sk-live-secret-1234567890", shown)
+            self.assertNotIn("hunter2", shown)
+            requested = next(event for event in page["events"]
+                             if event["type"] == "permission_requested")
+            self.assertEqual(requested["payload"]["arguments"]["api_key"], "[REDACTED]")
+            self.assertEqual(requested["payload"]["arguments"]["note"],
+                             "password=[REDACTED]")
+
+            # 审批回放仍使用原始参数；JSONL 原文未被显示层改写
+            outcome = runtime.approve(sid, call_id, "allow")
+            self.assertEqual(outcome["status"], "done")
+            self.assertEqual(seen[0]["api_key"], "sk-live-secret-1234567890")
+            self.assertEqual(seen[0]["note"], "password=hunter2")
+            self.assertIn("sk-live-secret-1234567890",
+                          store._path(sid).read_text(encoding="utf-8"))
+
+            # 执行期的 tool_call 记录同样只在显示层脱敏
+            replay_page = store.event_page(sid, limit=50)
+            replay_shown = json.dumps(replay_page, ensure_ascii=False)
+            self.assertNotIn("sk-live-secret-1234567890", replay_shown)
+            tool_call = next(event for event in replay_page["events"]
+                             if event["type"] == "tool_call")
+            self.assertEqual(tool_call["payload"]["arguments"]["api_key"], "[REDACTED]")
+
+
+class StrictJournalReadTest(unittest.TestCase):
+    """E：严格读取用于审批幂等/跨进程恢复/终止判定，坏日志 fail-closed。"""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.calls = []
+
+    def test_read_strict_is_opt_in_and_rejects_damaged_journal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = SessionStore(Path(directory))
+            store.append("strict-journal", "user_message", {"text": "中文记录"})
+            self.assertEqual(store.read("strict-journal", strict=True),
+                             store.read("strict-journal"))
+            self.assertEqual(store.read_strict("strict-journal"),
+                             store.read("strict-journal"))
+            path = store._path("strict-journal")
+            with path.open("ab") as stream:
+                stream.write(b'{"type": "completed", "payload": ')
+            # 尾部半行：默认读取保持向后兼容；严格读取报错
+            self.assertEqual(len(store.read("strict-journal")), 1)
+            with self.assertRaises(ValueError):
+                store.read("strict-journal", strict=True)
+            with path.open("ab") as stream:
+                stream.write(b'\nnot-json\n')
+            store.append("strict-journal", "completed", {"status": "done"})
+            # 完整坏行同样被默认读取跳过；严格读取仍 fail-closed
+            self.assertEqual(len(store.read("strict-journal")), 2)
+            with self.assertRaises(ValueError):
+                store.read_strict("strict-journal")
+
+    def test_strict_decision_paths_fail_closed_on_uncommitted_tail(self):
+        runtime = ScriptedRuntime(self.root, [step(1)], self.calls)
+        waiting = runtime.start("Pending approval")
+        sid, call_id = waiting["session_id"], waiting["pending"]["id"]
+        with runtime.sessions._path(sid).open("ab") as stream:
+            stream.write(b'{"type": "tool_result", "payload": ')
+        with self.assertRaises(ValueError):
+            runtime.sessions.read_strict(sid)
+        with self.assertRaises(ValueError):
+            runtime._recover_pending(sid, call_id)          # 审批幂等
+        with self.assertRaises(ValueError):
+            runtime._restore_session_meta(sid)              # 跨进程恢复
+        with self.assertRaises(ValueError):
+            runtime._terminal_status(sid)                   # 终止判定
+        with self.assertRaises(ValueError):
+            AdaptiveDriver(runtime)._require_open_journal(sid)
+        with self.assertRaises(ValueError):
+            runtime.approve(sid, call_id, "allow")          # 绝不当作待审批可重放
         self.assertEqual(self.calls, [])
 
 

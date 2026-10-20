@@ -2,14 +2,20 @@
 
 覆盖：计划生成（确定性命令推断）、白名单拒绝、真实命令执行（退出码与输出）、
 超时容错路径（以 sleep 超长命令验证）、实验记录入库（完成/失败均写）、
-commands 缺省时取计划产物。
+commands 缺省时取计划产物、复现沙箱边界（shell 元字符注入与越界 cwd）。
 """
 from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
 
 import pytest
 
 from src import config
 from src import research_notebook
+from src.agents import reproduce as reproduce_mod
 from src.agents import specialists  # noqa: F401  （注册 reproduce actions）
 from src.agents.reproduce import reproduce_plan, reproduce_run
 from src.orchestrator.engine import TaskContext
@@ -97,3 +103,80 @@ def test_run_timeout_recorded(monkeypatch):
     run = reproduce_run(ctx, {"commands": ["python -m pip --version"]})
     # pip --version 正常返回；超时路径由白名单内命令 + 内部超时保障，这里验证结构完整
     assert run["results"][0]["code"] is not None or run["results"][0].get("timeout")
+
+
+class ReproduceSandboxTests(unittest.TestCase):
+    """reproduce_run 复现沙箱：shell 元字符拒绝与 cwd 不得越出项目根。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.project = Path(self.tmp.name) / "project"
+        self.project.mkdir()
+        self.data = Path(self.tmp.name) / "data"
+        patch = mock.patch.object(config, "DATA_DIR", self.data)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def context(self, **params):
+        return TaskContext(task_id="repro_sandbox", workflow="reproduce",
+                           params={"topic": "复现沙箱边界", **params})
+
+    def test_shell_metacharacters_are_rejected_before_any_process_starts(self):
+        marker = self.project / "pwned.txt"
+        commands = [
+            "python -m pytest; echo pwned",
+            "python -m pytest && echo pwned",
+            "python -m pytest | echo pwned",
+            "python -m pytest $(whoami)",
+            "python -m pytest `echo pwned`",
+            "python -m pytest %USERNAME%",
+            "python -m pytest > " + str(marker),
+            "python -m pytest\npython -m pip --version",
+        ]
+        ctx = self.context(project_root=str(self.project))
+        with mock.patch.object(reproduce_mod.subprocess, "run") as runner:
+            for start in range(0, len(commands), 5):  # 单次最多检查 5 条命令
+                batch = commands[start:start + 5]
+                run = reproduce_mod.reproduce_run(ctx, {"commands": batch})
+                self.assertEqual(len(batch), run["total"])
+                self.assertEqual(0, run["passed"])
+                self.assertTrue(all(row["rejected"] for row in run["results"]))
+                self.assertTrue(all("shell 元字符" in row["output"]
+                                    for row in run["results"]))
+            runner.assert_not_called()
+        self.assertFalse(marker.exists())
+
+    def test_cwd_must_resolve_inside_project_root(self):
+        outside = Path(self.tmp.name) / "outside"
+        outside.mkdir()
+        ctx = self.context(project_root=str(self.project))
+        for cwd in ("..", "../outside", str(outside), str(outside / "..")):
+            with self.subTest(cwd=cwd), self.assertRaisesRegex(ValueError, "cwd 越界"):
+                reproduce_mod.reproduce_run(
+                    ctx, {"commands": ["python -m pip --version"], "cwd": cwd})
+
+    def test_project_root_from_ctx_attribute_and_inner_cwd_are_accepted(self):
+        work = self.project / "work"
+        work.mkdir()
+        ctx = self.context()
+        ctx.project_root = str(self.project)  # ctx 显式提供项目根时优先于进程 cwd
+        run = reproduce_mod.reproduce_run(
+            ctx, {"commands": ["python -m pip --version"], "cwd": "work"})
+        self.assertEqual(1, run["total"])
+        self.assertTrue(run["results"][0]["ok"], run["results"][0])
+        self.assertIn("pip", run["results"][0]["output"].lower())
+
+    def test_whitelist_and_forbidden_words_are_preserved(self):
+        ctx = self.context(project_root=str(self.project))
+        run = reproduce_mod.reproduce_run(
+            ctx, {"commands": ["echo hello", "python -m pytest && rm -rf build",
+                               'python -c "print(1)"']})
+        self.assertEqual(0, run["passed"])
+        self.assertTrue(all(row["rejected"] for row in run["results"]))
+        self.assertIn("不在复现白名单", run["results"][0]["output"])
+
+
+if __name__ == "__main__":
+    unittest.main()
+

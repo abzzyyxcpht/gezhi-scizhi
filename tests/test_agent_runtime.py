@@ -1,8 +1,27 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from src.agent_runtime import AgentRuntime
+from src.agent_runtime import AgentRuntime, ToolCall
+
+
+class _GateRuntime(AgentRuntime):
+    """固定计划的离线 runtime：用于验证工具执行入口的权限兜底与审批语义。"""
+
+    def __init__(self, root, steps, *, permissions=None):
+        super().__init__(llm_enabled=False, session_root=root, permissions=permissions)
+        self.steps = steps
+        self.calls = []
+
+    def plan(self, request, mode="plan", agent="research"):
+        return self._plan_payload(mode, request, self.steps, agent)
+
+    def fixture_handler(self):
+        def execute(args):
+            self.calls.append(dict(args))
+            return {"ok": True}
+        return execute
 
 
 class AgentRuntimeTest(unittest.TestCase):
@@ -57,3 +76,83 @@ class AgentRuntimeTest(unittest.TestCase):
                                           "allow_session")
             self.assertEqual(result["status"], "done")
             self.assertGreater(result["events"][-1]["payload"].get("status", ""), "")
+
+
+class ExecuteCallPermissionTest(unittest.TestCase):
+    """A/B：执行入口权限兜底与拒绝原因不被工具清单污染。"""
+
+    def test_execute_call_denies_before_handler_and_logs_permission_denied(self):
+        with tempfile.TemporaryDirectory() as d:
+            runtime = AgentRuntime(llm_enabled=False, session_root=Path(d),
+                                   permissions={"fixture.write": "deny"})
+            handler = mock.Mock(return_value={"ok": True})
+            runtime._register("fixture.write", "write", "fixture", handler)
+            result = runtime._execute_call(
+                "gate-denied", ToolCall("call-denied", "fixture.write", {}, "write"))
+            self.assertEqual(result, {"ok": False, "error": "permission_denied",
+                                      "executed": False})
+            handler.assert_not_called()
+            events = runtime.sessions.read("gate-denied")
+            self.assertEqual([event["type"] for event in events], ["permission_denied"])
+            self.assertEqual(events[0]["payload"]["tool_call_id"], "call-denied")
+            self.assertEqual(events[0]["payload"]["tool"], "fixture.write")
+
+    def test_execute_call_tier_denial_blocks_handler_and_names_required_tier(self):
+        with tempfile.TemporaryDirectory() as d:
+            runtime = AgentRuntime(llm_enabled=False, session_root=Path(d))
+            handler = mock.Mock(return_value={"ok": True})
+            runtime._register("fixture.write", "write", "fixture", handler)
+            with mock.patch("src.settings.load",
+                            return_value={"agent_permission_tier": "read-only"}):
+                result = runtime._execute_call(
+                    "gate-tier", ToolCall("call-tier", "fixture.write", {}, "write"))
+            self.assertEqual(result, {"ok": False, "error": "permission_denied",
+                                      "executed": False})
+            handler.assert_not_called()
+            self.assertIn("只读", runtime._denial_reasons["gate-tier"])
+
+    def test_approved_execution_does_not_prompt_again(self):
+        with tempfile.TemporaryDirectory() as d:
+            runtime = _GateRuntime(
+                Path(d), [{"tool": "fixture.write", "arguments": {"value": 1}}])
+            runtime._register("fixture.write", "write", "fixture",
+                              runtime.fixture_handler())
+            waiting = runtime.start("需要审批的写入动作")
+            self.assertEqual(waiting["status"], "waiting_approval")
+            self.assertEqual(runtime.calls, [])
+            done = runtime.approve(waiting["session_id"], waiting["pending"]["id"], "allow")
+            self.assertEqual(done["status"], "done")
+            self.assertEqual(len(runtime.calls), 1)
+            events = runtime.sessions.read(waiting["session_id"])
+            self.assertEqual(sum(event["type"] == "permission_requested"
+                                 for event in events), 1)
+            self.assertEqual(sum(event["type"] == "permission_granted"
+                                 for event in events), 1)
+            self.assertEqual(sum(event["type"] == "tool_call" for event in events), 1)
+
+    def test_tools_schema_enumeration_does_not_pollute_denial_reason(self):
+        with tempfile.TemporaryDirectory() as d:
+            runtime = AgentRuntime(llm_enabled=False, session_root=Path(d))
+            runtime.policy.decisions["doctor.run"] = "deny"
+            with mock.patch("src.settings.load",
+                            return_value={"agent_permission_tier": "read-only"}):
+                self.assertGreater(len(runtime.tools_schema("polluted")), 5)
+                self.assertNotIn("polluted", runtime._denial_reasons)
+                blocked = runtime._continue(
+                    "polluted", [{"tool": "doctor.run", "arguments": {}}], 0)
+            self.assertEqual(blocked["status"], "blocked")
+            # 真实拒绝原因应来自当前策略，而不是 tools_schema 枚举时暂存的旧理由
+            self.assertIn("已被策略禁用", blocked["reason"])
+            self.assertNotIn("完全访问", blocked["reason"])
+
+    def test_only_real_tier_denial_records_reason(self):
+        with tempfile.TemporaryDirectory() as d:
+            runtime = AgentRuntime(llm_enabled=False, session_root=Path(d))
+            with mock.patch("src.settings.load",
+                            return_value={"agent_permission_tier": "read-only"}):
+                runtime.tools_schema("reason-session")
+                self.assertNotIn("reason-session", runtime._denial_reasons)
+                decision = runtime._agent_gate(
+                    "reason-session", "shell.run", "write", {"command": "echo hi"})
+                self.assertEqual(decision, "deny")
+                self.assertIn("完全访问", runtime._denial_reasons["reason-session"])

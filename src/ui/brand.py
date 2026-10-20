@@ -93,15 +93,20 @@ FEATURE_NAMES = {
 }
 
 
-def time_saved_text(pool_size: int, rounds: int) -> str:
-    """“科研时间账”彩蛋：按文献量估算省下的事务时间。
+def pipeline_receipt_text(pool_size: int, rounds: int,
+                          tool_calls: int | None = None,
+                          human_handoffs: int | None = None) -> str:
+    """流水线回执：只陈述可核验的过程计数，不估算、不宣称节省时间。
 
-    估算口径：人工粗读摘要并摘录要点约 6 分钟/篇，初筛扫读约 1 分钟/篇。
+    与 README“没有虚构性能提升”一致：文献数、轮次、工具调用与人工接管都能
+    在过程记录里逐项对上，因此不做工时折算；未传入的计数不输出，避免以 0
+    冒充“没有发生”。
     """
     if pool_size <= 0:
         return ""
-    saved_min = pool_size * 6 + rounds * 25 * 1
-    hours = saved_min / 60
-    if hours >= 1:
-        return f"时间账：本次科研流水线约为你省下 {hours:.1f} 小时事务时间——去读文献背后的问题吧。"
-    return f"时间账：本次约为你省下 {saved_min} 分钟事务时间。"
+    parts = [f"文献 {pool_size} 篇", f"执行 {rounds} 轮"]
+    if tool_calls is not None:
+        parts.append(f"工具调用 {tool_calls} 次")
+    if human_handoffs is not None:
+        parts.append(f"人工接管 {human_handoffs} 次")
+    return "流水线回执：" + " · ".join(parts)

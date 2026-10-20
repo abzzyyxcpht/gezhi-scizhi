@@ -168,7 +168,15 @@ class SessionStore:
             # file signature makes the next reader apply only the new suffix.
         return event
 
-    def read(self, session_id: str) -> list[dict[str, Any]]:
+    def read(self, session_id: str, strict: bool = False) -> list[dict[str, Any]]:
+        """读取会话日志；strict=True 时坏行/未提交末行直接抛错（fail-closed）。
+
+        默认行为保持向后兼容：容忍损坏行并跳过。审批幂等、跨进程恢复与
+        终止判定等决策路径必须传 strict=True，绝不能把坏日志当作
+        「没有待审批」或「尚未结束」。
+        """
+        if strict:
+            return self.read_strict(session_id)
         path = self._path(session_id)
         if not path.exists():
             return []
@@ -180,14 +188,54 @@ class SessionStore:
                 continue
         return out
 
+    def read_strict(self, session_id: str) -> list[dict[str, Any]]:
+        """严格读取：日志不完整时抛 ValueError，供审批/恢复/终止判定使用。
+
+        写入中的尾部半行（无结尾换行）短暂重试后仍不完整即报错；任何一行
+        不可解析或事件结构无效也报错，而不是静默丢弃记录。
+        """
+        path = self._path(session_id)
+        raw = b""
+        for attempt in range(3):
+            try:
+                raw = path.read_bytes()
+            except FileNotFoundError:
+                return []
+            if not raw or raw.endswith(b"\n"):
+                break
+            if attempt < 2:
+                time.sleep(0.005)
+                continue
+            raise ValueError("会话日志末行尚未完整提交，无法核验审批与终止状态；原日志已保留")
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            raise ValueError("会话日志包含无效 UTF-8，无法核验审批与终止状态；原日志已保留") from None
+        events: list[dict[str, Any]] = []
+        for number, line in enumerate(text.split("\n")[:-1], 1):
+            try:
+                event = json.loads(line)
+            except (json.JSONDecodeError, RecursionError):
+                raise ValueError(f"会话日志第 {number} 行不可解析，无法核验审批与终止状态；原日志已保留") from None
+            if not isinstance(event, dict) or not isinstance(event.get("type"), str) or not event["type"]:
+                raise ValueError(f"会话日志第 {number} 行事件结构无效；原日志已保留")
+            events.append(event)
+        return events
+
     def event_page(self, session_id: str, cursor: str | None = None,
                    limit: int = 200, tail: bool = False) -> dict[str, Any]:
-        """Bounded display events; never used for approval or recovery decisions."""
+        """Bounded display events; never used for approval or recovery decisions.
+
+        显示层统一复用 workbench.redact 做脱敏；原始会话 JSONL 与审批回放
+        仍走 read()/read_strict()，不受此处显示投影影响。
+        """
         if not isinstance(session_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', session_id):
             raise ValueError('会话 ID 无效')
         from .session_events import read_event_page
+        from .workbench import redact
         with self._session_projection_lock(session_id):
-            return read_event_page(self._path(session_id), session_id, cursor, limit, tail)
+            page = read_event_page(self._path(session_id), session_id, cursor, limit, tail)
+        return {**page, 'events': redact(page['events'])}
 
     @staticmethod
     def _project(session_id: str, events: list[dict[str, Any]]) -> dict[str, Any]:
@@ -780,8 +828,12 @@ class AgentRuntime:
 
     def _recover_pending(self, session_id: str,
                          tool_call_id: str) -> tuple[str, ToolCall, list[dict[str, Any]], int] | None:
-        """从 JSONL 恢复跨进程审批，保证 CLI/Bridge 重启后仍可继续。"""
-        events = self.sessions.read(session_id)
+        """从 JSONL 恢复跨进程审批，保证 CLI/Bridge 重启后仍可继续。
+
+        审批依赖完整日志：坏行/未提交末行必须 fail-closed，不能当作
+        「已审批/已执行」或「无待审批」而静默放过。
+        """
+        events = self.sessions.read(session_id, strict=True)
         start = next((i for i in range(len(events)-1, -1, -1) if events[i]['type'] == 'user_message'), 0)
         events = events[start:]
         for event in events:
@@ -831,8 +883,11 @@ class AgentRuntime:
         return recovered
 
     def _restore_session_meta(self, session_id: str) -> None:
-        """跨进程恢复当前智能体与主题，保证审批后续步骤仍走编制表权限。"""
-        events = self.sessions.read(session_id)
+        """跨进程恢复当前智能体与主题，保证审批后续步骤仍走编制表权限。
+
+        日志不完整时抛错（fail-closed），不基于残缺记录恢复授权或状态。
+        """
+        events = self.sessions.read(session_id, strict=True)
         if any(e.get('type') == 'completed' and e.get('payload', {}).get('reason') == 'rewound'
                for e in events):
             # Rebuild from retained evidence even in a different cached runtime
@@ -899,8 +954,9 @@ class AgentRuntime:
                 self._restore_session_meta(session_id)
                 if (self.sessions.root / f"{session_id}.cancel").exists():
                     return {"session_id": session_id, "status": self._publish_terminal(session_id, "cancelled")}
-                waiting = next(e["payload"] for e in reversed(self.sessions.read(session_id))
-                               if e["type"] == "children_waiting")
+                waiting = next(e["payload"] for e in reversed(
+                    self.sessions.read(session_id, strict=True))
+                    if e["type"] == "children_waiting")
                 progress = self.children_progress(waiting["children"])
                 if progress["waiting"]:
                     return {"session_id": session_id, "status": "waiting_children", **progress}
@@ -937,8 +993,11 @@ class AgentRuntime:
         self._save_workspace(parent)
 
     def _recover_child_handoff(self, parent: str, waiting: list[str]) -> dict[str, Any] | None:
-        """Read legacy waits from tool identities, never from model prose."""
-        events = self.sessions.read(parent)
+        """Read legacy waits from tool identities, never from model prose.
+
+        归并依据必须来自完整日志：坏行时抛错，避免重复归并或漏归并。
+        """
+        events = self.sessions.read(parent, strict=True)
         for index in range(len(events) - 1, -1, -1):
             event = events[index]
             payload = event.get("payload") or {}
@@ -1024,8 +1083,12 @@ class AgentRuntime:
             self._save_workspace(parent)
 
     def _terminal_status(self, session_id: str) -> str | None:
-        """Read only the durable terminal event for the current user turn."""
-        events = self.sessions.read(session_id)
+        """Read only the durable terminal event for the current user turn.
+
+        终止判定依赖完整日志：坏行时抛错而不是当作「尚未结束」，
+        避免损坏记录上的会话被重复执行或重复回执。
+        """
+        events = self.sessions.read(session_id, strict=True)
         start = next((i for i in range(len(events) - 1, -1, -1)
                       if events[i].get("type") == "user_message"), 0)
         for event in events[start:]:
@@ -1124,10 +1187,12 @@ class AgentRuntime:
             tool_name, capability, arguments,
             preferences.get("agent_permission_tier",
                             research_permissions.DEFAULT_TIER))
-        if verdict == "deny":
+        if verdict == "deny" and include_tier:
+            # 只有真实进入拒绝（include_tier=True 且调用被挡）才记录原因；
+            # tools_schema 枚举用 include_tier=False，门槛不足的工具仍对模型可见，
+            # 不能顺手写下原因，否则后续无关的拒绝会弹出一段旧理由。
             self._denial_reasons[session_id] = action["denied_because"]
-            if include_tier:
-                return "deny"
+            return "deny"
         if tool_name.startswith("subagent.") and not preferences.get("subagents_enabled", True):
             return "deny"
         if tool_name == "memory.search" and not preferences.get("memory_enabled", True):
@@ -1160,7 +1225,10 @@ class AgentRuntime:
                     return "deny"
                 if not state or not state["available"] or state["server"] != arguments.get("server"):
                     return "deny"
-            return self._agent_gate(session_id, "mcp.call", capability, arguments)
+            # 递归到 mcp.call 时沿用 include_tier：枚举工具清单（include_tier=False）
+            # 不得在递归里写下三档拒绝原因。
+            return self._agent_gate(session_id, "mcp.call", capability, arguments,
+                                    include_tier=include_tier)
         base = self.policy.decision(tool_name, capability, allowed, overlay, session_id)
         permission_key = self._permission_key(tool_name, arguments)
         if base == "deny" or permission_key == tool_name:
@@ -1246,6 +1314,13 @@ class AgentRuntime:
                 "tool_call_id": call.id, "events": self.sessions.read(session_id)}
 
     def _execute_call(self, session_id: str, call: ToolCall, *, recoverable: bool = False) -> dict[str, Any]:
+        # 权限兜底：本方法是唯一执行入口，任何直接调用者（桥/UI/自检）都不能
+        # 绕过 deny。ask 仍交调用方审批；已批准后的再次执行在这里只会读到
+        # ask，不会重复弹审批。
+        if self._agent_gate(session_id, call.name, call.capability, call.arguments) == "deny":
+            self.sessions.append(session_id, "permission_denied",
+                                 {"tool": call.name, "tool_call_id": call.id})
+            return {"ok": False, "error": "permission_denied", "executed": False}
         self.sessions.append(session_id, "tool_call", {"id": call.id,
                                                          "name": call.name,
                                                          "arguments": call.arguments})
@@ -1279,6 +1354,10 @@ class AgentRuntime:
                 result = {"ok": False, "error": str(exc)}
         if not isinstance(result, dict):
             result = {"ok": False, "error": "工具没有返回结构化结果"}
+        elif "ok" not in result:
+            # 成功口径统一：旧工具（如 stats.analyze）没有 ok 字段，
+            # 这里按是否有 error 归一化，供执行计划回执统一判定。
+            result = {**result, "ok": "error" not in result}
         # Entering a handler is conservatively considered executed. A handler
         # may explicitly report that its preconditions rejected the operation
         # before any effect; malformed claims are rejected by prepare_result.

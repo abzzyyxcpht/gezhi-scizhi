@@ -23,8 +23,22 @@ class ProcessOwnerTests(unittest.TestCase):
         from src import process_owner
         self.module = process_owner
         self.directory = tempfile.TemporaryDirectory(prefix="owned-process-")
-        self.addCleanup(self.directory.cleanup)
+        self.addCleanup(self._cleanup_directory)
         self.root = Path(self.directory.name)
+
+    def _cleanup_directory(self):
+        """Windows releases a killed child's cwd handle asynchronously.
+
+        The stop semantics are asserted inside each test; this retry only keeps
+        temporary-directory removal from failing on that short kernel window.
+        """
+        for _ in range(100):
+            try:
+                self.directory.cleanup()
+                return
+            except PermissionError:
+                time.sleep(0.05)
+        self.directory.cleanup()
 
     def command(self, name, source):
         path = self.root / name
@@ -164,6 +178,45 @@ subprocess.Popen([sys.executable, '-u', 'child.py'])
         process.stop()
         self.assert_tree_gone()
         self.assertIsNone(sibling.poll())
+
+    def test_argv_spawn_pipes_line_protocol_and_owns_descendants(self):
+        self.command("argv-server.py", """
+import os, subprocess, sys
+from pathlib import Path
+child = subprocess.Popen([sys.executable, '-u', '-c', 'import time; time.sleep(30)'])
+Path('argv-child').write_text(str(child.pid))
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    if line == 'env':
+        print('env=' + os.environ.get('ONLY_FOR_CHILD', '<missing>'), flush=True)
+    else:
+        print('line=' + line, flush=True)
+""")
+        process = self.module.spawn_owned_argv(
+            [sys.executable, "-u", str(self.root / "argv-server.py")], self.root,
+            env={"PATH": os.environ.get("PATH", ""),
+                 "SYSTEMROOT": os.environ.get("SYSTEMROOT", ""),
+                 "ONLY_FOR_CHILD": "yes"})
+        self.addCleanup(process.close)
+        self.assertIsNotNone(process.stdin)
+        process.stdin.write(b"ping\n")
+        process.stdin.flush()
+        self.assertEqual(process.stdout.readline().strip(), b"line=ping")
+        process.stdin.write(b"env\n")
+        process.stdin.flush()
+        self.assertEqual(process.stdout.readline().strip(), b"env=yes")
+        self.wait_for(lambda: self.marker_ready("argv-child"))
+        child_pid = int((self.root / "argv-child").read_text())
+        process.close()
+        self.wait_for(lambda: not psutil.pid_exists(child_pid))
+        self.assertTrue(process.tree_empty())
+
+    def test_argv_spawn_rejects_invalid_arguments(self):
+        for argv in ((), [], [""], ["ok", b"bytes"], ["bad\x00arg"]):
+            with self.subTest(argv=argv), self.assertRaises(ValueError):
+                self.module.spawn_owned_argv(argv, self.root)
 
     @unittest.skipUnless(os.name == "nt", "Windows native process ownership")
     def test_frozen_executable_is_not_used_as_python_trampoline(self):

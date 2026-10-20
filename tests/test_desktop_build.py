@@ -11,7 +11,7 @@ from unittest import mock
 
 import flet as ft  # noqa: F401  （保证 flet 可用，与桌面版同环境）
 
-from src.ui import desktop
+from src.ui import brand, desktop
 
 
 class DesktopBuildTest(unittest.TestCase):
@@ -47,6 +47,23 @@ class DesktopBuildTest(unittest.TestCase):
         page = mock.MagicMock(name="Page")
         desktop.main(page)
         self.assertTrue(page.run_task.called, "应注册后台轮询任务")
+
+
+class BrandCopyHonestyTest(unittest.TestCase):
+    """README 声明“没有虚构性能提升”：回执只报可核验计数，不折算节省时间。"""
+
+    def test_pipeline_receipt_reports_verifiable_counts(self):
+        text = brand.pipeline_receipt_text(12, 3, tool_calls=7, human_handoffs=2)
+        for expected in ("12 篇", "3 轮", "工具调用 7 次", "人工接管 2 次"):
+            self.assertIn(expected, text)
+        for claim in ("省下", "节省", "小时", "分钟"):
+            self.assertNotIn(claim, text)
+
+    def test_pipeline_receipt_omits_counts_it_cannot_verify(self):
+        text = brand.pipeline_receipt_text(5, 1)
+        self.assertNotIn("工具调用", text)
+        self.assertNotIn("人工接管", text)
+        self.assertEqual("", brand.pipeline_receipt_text(0, 1))
 
 
 if __name__ == "__main__":

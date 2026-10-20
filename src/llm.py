@@ -200,7 +200,8 @@ def _fingerprint(messages: list, tools: list | None) -> str:
 
 
 def _log(node: str, model: str, usage: dict[str, Any], t0: float,
-         prompt_key: str, status: str = "success", *, profile: dict | None = None, fingerprint: str = "") -> str:
+         prompt_key: str, status: str = "success", *, profile: dict | None = None,
+         fingerprint: str = "", reasoning: dict[str, Any] | None = None) -> str:
     profile = profile or {}
     return log_model(node=node, route=f"remote({model})", model=model,
                      connection_id=str(profile.get("connection_id") or ""),
@@ -210,7 +211,47 @@ def _log(node: str, model: str, usage: dict[str, Any], t0: float,
                      reasoning_tokens=usage.get("reasoning_tokens", 0), cache_reported=usage.get("cache_reported", False),
                      usage_reported=usage.get("usage_reported", False), prompt_fingerprint=fingerprint,
                      latency_ms=int((time.perf_counter() - t0) * 1000), status=status,
-                     route_reason="llm-endpoint-configured", prompt_key=prompt_key)
+                     route_reason="llm-endpoint-configured", prompt_key=prompt_key,
+                     reasoning=reasoning)
+
+
+def _reasoning_receipt(profile: dict, payload: dict) -> dict[str, Any]:
+    """Stage 1+2 of the effort trail: what was asked and what was really sent."""
+    from . import reasoning_receipt as rr
+    try:
+        reserved, total = _reserved(profile, payload)
+    except (TypeError, ValueError):
+        reserved, total = 0, None
+    return rr.describe(profile, payload, reserved=reserved, total_limit=total)
+
+
+def _reserved(profile: dict, payload: dict) -> tuple[int, int | None]:
+    """Recover the thinking budget the adapter carved out, if it reported one."""
+    limit = payload.get("max_tokens") or payload.get("max_completion_tokens") \
+        or payload.get("max_output_tokens")
+    thinking = payload.get("thinking")
+    budget = thinking.get("budget_tokens") if isinstance(thinking, dict) else None
+    config = payload.get("generationConfig")
+    nested = config.get("thinkingConfig") if isinstance(config, dict) else None
+    if budget is None and isinstance(nested, dict):
+        budget = nested.get("thinkingBudget")
+    return int(budget or 0), (int(limit) if isinstance(limit, int) else None)
+
+
+def _settle(receipt: dict[str, Any] | None, profile: dict, usage: dict[str, Any] | None,
+            *, error: Exception | None = None) -> dict[str, Any]:
+    """Stage 3: attach the provider report, or the local refusal that stopped it."""
+    from . import reasoning_receipt as rr
+    if receipt is None:
+        # The request never got as far as a payload: record why, never invent one.
+        base = {"protocol": str(profile.get("protocol") or ""),
+                "requested": str(profile.get("reasoning_effort") or "auto"),
+                "style": str(profile.get("thinking_style") or "auto"),
+                "wire": [], "reserved_tokens": 0, "total_limit": None}
+        return rr.mark_unsupported(base, type(error).__name__ if error else "请求未构建")
+    if error is not None and not receipt.get("delivered"):
+        return rr.mark_unsupported(receipt, type(error).__name__)
+    return rr.attach_report(receipt, usage)
 
 
 def _safe_error(exc: Exception) -> Exception:
@@ -234,10 +275,12 @@ def chat(messages: list[dict[str, Any]], node: str = "unknown", temperature: flo
     additional tokens, subject to the profile's hard max_output_tokens cap.
     """
     t0, profile, fingerprint, data = time.perf_counter(), {}, "", {}
+    receipt: dict[str, Any] | None = None
     try:
         profile = _resolve_config(tier)
         fingerprint = _fingerprint(messages, tools)
         request = model_protocols.build_request(profile, messages, temperature, max_tokens, tools, tool_choice)
+        receipt = _reasoning_receipt(profile, request["json"])
         with _client(profile) as cli:
             resp = cli.post(request["url"], headers=request["headers"], json=request["json"])
             resp.raise_for_status()
@@ -246,11 +289,14 @@ def chat(messages: list[dict[str, Any]], node: str = "unknown", temperature: flo
     except Exception as exc:
         actual = (data.get("model") or data.get("modelVersion")) if isinstance(data, dict) else None
         usage = model_protocols.normalize_usage(profile.get("protocol", "chat_completions"), data) if isinstance(data, dict) else {}
-        _log(node, str(actual or profile.get("model") or ""), usage, t0, prompt_key, "error", profile=profile, fingerprint=fingerprint)
+        _log(node, str(actual or profile.get("model") or ""), usage, t0, prompt_key, "error", profile=profile,
+             fingerprint=fingerprint,
+             reasoning=_settle(receipt, profile, usage, error=exc))
         raise _safe_error(exc) from None
     status = result.pop("status")
     result["trace_id"] = _log(node, result["model"], result["usage"], t0, prompt_key, status,
-                              profile=profile, fingerprint=fingerprint)
+                              profile=profile, fingerprint=fingerprint,
+                              reasoning=_settle(receipt, profile, result["usage"]))
     if status == "incomplete":
         raise ModelResponseError("模型输出已截断或未完成；请提高总输出上限或降低思考预算。")
     if status != "success":
@@ -326,9 +372,11 @@ def _stream_events(messages: list[dict[str, Any]], node: str, temperature: float
     actual_model = str(profile.get("model") or "")
     tool_slots: dict[int, dict] = {}
     content_parts: list[str] = []
+    receipt: dict[str, Any] | None = None
     try:
         request = model_protocols.build_request(profile, messages, temperature, max_tokens,
                                                 tools=tools, stream=True)
+        receipt = _reasoning_receipt(profile, request["json"])
         with _client(profile) as cli:
             with cli.stream("POST", request["url"], headers=request["headers"], json=request["json"]) as resp:
                 resp.raise_for_status()
@@ -387,27 +435,32 @@ def _stream_events(messages: list[dict[str, Any]], node: str, temperature: float
                 finish = full_result["finish_reason"]
                 raise ModelResponseError("模型输出截断或没有可显示正文；工具调用请使用 chat(tools=...)。")
     except GeneratorExit:
-        _log(node, actual_model, usage, t0, prompt_key, "cancelled", profile=profile, fingerprint=fingerprint)
+        _log(node, actual_model, usage, t0, prompt_key, "cancelled", profile=profile,
+             fingerprint=fingerprint, reasoning=_settle(receipt, profile, usage))
         raise
     except Exception as exc:
         _log(node, actual_model, usage, t0, prompt_key,
              "incomplete" if yielded or finish == "length" else "error",
-             profile=profile, fingerprint=fingerprint)
+             profile=profile, fingerprint=fingerprint,
+             reasoning=_settle(receipt, profile, usage, error=exc))
         raise _safe_error(exc) from None
     if not saw_event:
-        _log(node, actual_model, usage, t0, prompt_key, profile=profile, fingerprint=fingerprint)
+        _log(node, actual_model, usage, t0, prompt_key, profile=profile, fingerprint=fingerprint,
+             reasoning=_settle(receipt, profile, usage))
         result = full_result
         result.pop("status", None)
         yield {"result": result}
         return
     if finish and finish not in {"stop", "tool_calls"}:
-        _log(node, actual_model, usage, t0, prompt_key, "error", profile=profile, fingerprint=fingerprint)
+        _log(node, actual_model, usage, t0, prompt_key, "error", profile=profile, fingerprint=fingerprint,
+             reasoning=_settle(receipt, profile, usage))
         raise ModelResponseError("模型未返回可用结果，可能被策略阻止或生成失败。")
     result = _streamed_result(profile, actual_model, "".join(content_parts), tool_slots, usage)
     if not result["content"] and not result["tool_calls"]:
         _log(node, actual_model, usage, t0, prompt_key, "error", profile=profile, fingerprint=fingerprint)
         raise ModelResponseError("模型未返回可用结果，可能被策略阻止或生成失败。")
-    _log(node, actual_model, usage, t0, prompt_key, profile=profile, fingerprint=fingerprint)
+    _log(node, actual_model, usage, t0, prompt_key, profile=profile, fingerprint=fingerprint,
+         reasoning=_settle(receipt, profile, usage))
     yield {"result": result}
 
 

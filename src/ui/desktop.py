@@ -2168,6 +2168,28 @@ def main(page: ft.Page) -> None:
         value=app_settings.load().get("llm_reasoning_effort", "auto"),
         save=lambda patch: workspace_handle({"cmd": "settings_save", "settings": patch}),
         motion=lambda: reasoning_motion["enabled"], changed=reasoning_changed)
+
+    trail_seen = {"signature": None}
+
+    def refresh_effort_trail():
+        """Show what the last request carried; never infer from the saved dial."""
+        from .. import logging_util
+        path = getattr(logging_util, "_MODEL_LOG", None)
+        try:
+            stat = path.stat() if path is not None else None
+        except OSError:
+            stat = None
+        signature = (str(path), stat.st_mtime_ns, stat.st_size) if stat else (str(path), None, None)
+        if signature == trail_seen["signature"]:
+            return  # unchanged log: keep the rendered line, skip the re-read
+        trail_seen["signature"] = signature
+        try:
+            receipts = logging_util.usage_summary().get("reasoning", {}).get("receipts") or []
+        except (OSError, ValueError, TypeError):
+            receipts = []
+        reasoning_control.show_trail(receipts[-1] if receipts else None)
+
+    refresh_effort_trail()
     from .model_controls import ModelControlPanel
     def quick_model_saved():
         reasoning_control.refresh(app_settings.load().get("llm_reasoning_effort", "auto"))
@@ -3445,6 +3467,10 @@ def main(page: ft.Page) -> None:
                 return
             refresh_appearance_preferences()
             st = refresh_task()
+            # The dial state is saved locally; the trail records what was
+            # actually sent, so refresh it whenever a turn may have finished.
+            if agent_state['session_id'] and not agent_busy.visible:
+                refresh_effort_trail()
             if agent_state["session_id"] and (agent_busy.visible or nav_index["i"] == 4):
                 # 当前会话即使本机空闲，也可能在 TUI/远端继续或回滚。
                 # 空闲沿用低频轮询；未变化的事件不会重绘气泡。

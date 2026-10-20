@@ -109,7 +109,9 @@ class AdaptiveDriver:
         return identity
 
     def _require_open_journal(self, sid: str) -> None:
-        events = self.store.read(sid)
+        # 终止判定必须基于完整日志：坏行/未提交末行时 fail-closed，
+        # 不能把已结束的会话当作可以继续执行。
+        events = self.store.read(sid, strict=True)
         start = next((i for i in range(len(events)-1, -1, -1) if events[i].get("type") == "user_message"), 0)
         if any(event.get("type") in {"completed", "error"} for event in events[start:]):
             raise ValueError("持久日志已记录会话结束，不会重放已完成的执行")
@@ -914,7 +916,9 @@ class AdaptiveDriver:
         if tool is None or self.runtime._agent_gate(sid, tool.name, tool.capability, pending["arguments"]) == "deny":
             self.store.append(sid, "permission_denied", {"tool_call_id": call_id, "tool": pending["name"]})
             return self._finish(state, "blocked", "permission_denied", "当前策略已禁止该工具，旧审批未执行")
-        events = self.store.read(sid)
+        # 审批幂等依赖完整日志：坏行/未提交末行时 fail-closed，
+        # 不能把坏日志当作「未审批」而重复执行。
+        events = self.store.read(sid, strict=True)
         if any(e["type"] in {"permission_granted", "permission_denied"} and
                e.get("payload", {}).get("tool_call_id") == call_id for e in events):
             raise ValueError("该调用已经处理；不可重复审批")
@@ -939,7 +943,9 @@ class AdaptiveDriver:
         ids = ([state["active_call"]["id"]] if state.get("active_call") else [])
         ids += [str(c) for c in (state.get("active_calls") or [])]
         observed = {m.get("tool_call_id") for m in state["messages"] if m.get("role") == "tool"}
-        events = self.store.read(sid)
+        # 崩溃对账同样基于完整日志：坏行时抛错，不能把已执行的操作
+        # 当作「未执行」而重放副作用。
+        events = self.store.read(sid, strict=True)
         started = {e.get("payload", {}).get("id") for e in events if e.get("type") == "tool_call"}
         ids += [c["id"] for c in state["queue"] if c["id"] in started]
         ids = list(dict.fromkeys(ids))

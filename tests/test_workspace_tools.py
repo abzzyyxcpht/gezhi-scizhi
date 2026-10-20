@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sys
 import os
+import subprocess
 import tempfile
 import unittest
 import uuid
@@ -188,6 +189,79 @@ class WorkspaceToolsTest(unittest.TestCase):
         for command in ("rm -rf ./x", "del /f /s /q x", "format c:", "shutdown /s"):
             with self.assertRaisesRegex(ValueError, "危险命令"):
                 self.call("shell.run", command=command)
+
+    def test_shell_run_deny_normalizes_quoting_spacing_and_separators(self):
+        """归一化后逐段匹配：引号混淆、分写标志、&& 拼接、cmd/powershell 内联都要挡住。"""
+        for command in (
+            "rm -r -f ./build",
+            "rm -f -R ./build",
+            "rm --recursive --force ./build",
+            "del /q /s C:\\temp\\x",
+            "rd /s /q C:\\temp",
+            "Remove-Item -Recurse -Force .\\build",
+            "remove-item -recurse ./dist",
+            'cmd /c "del /q /s x"',
+            'powershell -NoProfile -Command "Remove-Item -Recurse ./dist"',
+            'powershell -c "rd /s /q C:\\temp"',
+            "echo ok && rm -rf ./build",
+            "echo ok || del /s /q x",
+            'r"m" -rf ./build',
+            "rm  -r    -f   ./build",
+        ):
+            with self.subTest(command=command), \
+                    self.assertRaisesRegex(ValueError, "危险命令"):
+                self.call("shell.run", command=command)
+
+    def test_shell_run_deny_keeps_harmless_commands(self):
+        result = self.call("shell.run", command="echo hello")
+        self.assertTrue(result["ok"], result)
+        self.assertIn("hello", result["stdout"])
+        listing = self.call("shell.run", command="dir")
+        self.assertTrue(listing["ok"], listing)
+
+    def test_path_rejects_ads_reserved_names_control_chars_and_empty_segments(self):
+        self.root.mkdir(parents=True, exist_ok=True)
+        (self.root / "sub").mkdir()
+        for path in ("a.txt:secret", "sub/a.txt:stream", "CON", "con.txt", "NUL.log",
+                     "sub/AUX", "COM1", "lpt9.txt", "bad\x01name"):
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                self.call("file.read", path=path)
+        for path in ("a//b.txt", "sub/", "sub\\", "C:relative.txt"):
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                self.call("file.write", path=path, content="x")
+        self.assertFalse((self.root / "a").exists())
+
+    def test_absolute_path_inside_root_is_still_allowed(self):
+        self.root.mkdir(parents=True, exist_ok=True)
+        target = self.root / "absolute.txt"
+        target.write_text("ok", encoding="utf-8")
+        result = self.call("file.read", path=str(target))
+        self.assertEqual(result["content"], "ok")
+
+    def test_link_escape_is_rejected(self):
+        """符号链接/目录联接解析后越界必须拒绝；平台不支持链接时跳过。"""
+        self.root.mkdir(parents=True, exist_ok=True)
+        outside = self.tmp / "linked-outside"
+        outside.mkdir()
+        (outside / "secret.txt").write_text("outside", encoding="utf-8")
+        link = self.root / "escape-link"
+        try:
+            os.symlink(outside, link, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            try:
+                created = subprocess.run(
+                    ["cmd", "/c", "mklink", "/J", str(link), str(outside)],
+                    capture_output=True, text=True, timeout=20)
+            except (OSError, subprocess.SubprocessError) as exc:
+                self.skipTest(f"平台不支持符号链接或目录联接：{exc}")
+            if created.returncode != 0:
+                self.skipTest("无法创建目录联接："
+                              + ((created.stdout or "") + (created.stderr or "")).strip()[:160])
+        with self.assertRaisesRegex(ValueError, "路径越界"):
+            self.call("file.read", path="escape-link/secret.txt")
+        with self.assertRaisesRegex(ValueError, "路径越界"):
+            self.call("file.write", path="escape-link/created.txt", content="x")
+        self.assertFalse((outside / "created.txt").exists())
 
     def test_shell_run_output_overflow_written_to_artifacts(self):
         command = f'"{sys.executable}" -c "print(\'z\' * {SHELL_OUTPUT_LIMIT * 3})"'
