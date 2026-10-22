@@ -1,6 +1,6 @@
 {
   "name": "gezhi-tui",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "格致 SciZhi 终端版 —— 格物致知，智启科研",
   "type": "module",
   "bin": {

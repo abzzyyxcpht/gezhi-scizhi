@@ -229,6 +229,41 @@ def self_check(output_path: Path | str, *, resource_root: Path | None = None,
 
                     check('execution_plan', execution_plan_check)
 
+                    def outcome_check():
+                        from src.outcome_checks import run as run_outcome_checks
+                        empty = run_outcome_checks({}, {}, {})
+                        if empty["verdict"] == "all_satisfied":
+                            raise ValueError("Empty evidence was reported as a satisfied outcome")
+                        states = {item["state"] for item in empty["items"]}
+                        if not states <= {"satisfied", "failed", "stale", "pending", "unknown"}:
+                            raise ValueError("Outcome checks produced an undocumented state")
+                        # A material that changed after it was recorded must become stale.
+                        import hashlib
+                        from src import config
+                        sample = Path(config.DATA_DIR) / "selfcheck-material.txt"
+                        sample.parent.mkdir(parents=True, exist_ok=True)
+                        sample.write_text("first", encoding="utf-8")
+                        digest = hashlib.sha256(sample.read_bytes()).hexdigest()
+                        artifacts = {"lit_filter": {"pool": [
+                            {"id": "M1", "title": "material", "sha256": digest,
+                             "path": str(sample)}]}}
+                        settled = run_outcome_checks(artifacts, {}, {})
+                        material = next(item for item in settled["items"]
+                                        if item["id"] == "material:integrity")
+                        if material["state"] != "satisfied":
+                            raise ValueError("Unchanged material was not verified")
+                        sample.write_text("second", encoding="utf-8")
+                        changed = run_outcome_checks(artifacts, {}, {})
+                        material = next(item for item in changed["items"]
+                                        if item["id"] == "material:integrity")
+                        if material["state"] != "stale":
+                            raise ValueError("Changed material was not reported as stale")
+                        sample.unlink(missing_ok=True)
+                        return {"items": settled["total"], "verdict": settled["verdict"],
+                                "stale_detected": True, "model_calls": 0}
+
+                    check('outcome_checks', outcome_check)
+
 
                     def event_projection():
                         store = runtime.sessions

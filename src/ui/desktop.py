@@ -26,6 +26,7 @@ from ..ui_preferences import normalize as normalize_ui, resolve_dark, SCHEMA as 
 from ..citation.gbt7714 import format_entry
 from .code_preview import CodePreview
 from .markdown_view import MarkdownView
+from .outcome_panel import OutcomeCheckPanel
 from .theme import build_theme, configure_typography, palette, repaint, style_inputs, ui_size, radius, code_font_family, motion_duration
 
 # 终态提示：主文案必须是可读中文；内部 reason、枚举与异常文本只作次要信息。
@@ -1052,13 +1053,24 @@ def main(page: ft.Page) -> None:
         ft.Column([graph_metrics, net_card, graph_tree], spacing=12,
                   scroll=ft.ScrollMode.AUTO, expand=True), padding=8)
 
+    # 成果页第 7 个页签：确定性验收清单。只读（经桥接 outcome_checks 读取），
+    # 人工复核入口只写独立的复核记录，不改写任务产物。
+    outcome_panel = OutcomeCheckPanel(page, api=workspace_handle)
+
+    def _result_tab_changed() -> None:
+        # 验收清单在切到该页签时才读取；无任务时由面板给出明确空状态。
+        if result_tabs.selected_index == 6:
+            outcome_panel.refresh(state.get("task_id"))
+
     result_tabs = ft.Tabs(
-        selected_index=0, expand=True, length=6,
+        selected_index=0, expand=True, length=7,
+        on_change=lambda e: _result_tab_changed(),
         content=ft.Column([
             ft.TabBar(tabs=[
                 ft.Tab(label="文献池"), ft.Tab(label="摘要整理稿"),
                 ft.Tab(label="综述框架"), ft.Tab(label="参考文献"),
                 ft.Tab(label="证据图谱"), ft.Tab(label="证据审计"),
+                ft.Tab(label="验收清单"),
             ]),
             ft.TabBarView(expand=True, controls=[
                 ft.Container(pool_view, padding=8),
@@ -1071,6 +1083,7 @@ def main(page: ft.Page) -> None:
                                cite_col], spacing=8), padding=8),
                 graph_view,
                 ft.Container(ft.Column([audit_md], scroll=ft.ScrollMode.AUTO), padding=8),
+                outcome_panel.content,
             ]),
         ], expand=True))
 
@@ -2988,8 +3001,11 @@ def main(page: ft.Page) -> None:
             refresh_task()
             if index == 2:
                 render_results(service.artifacts_of(state["task_id"]), force=True)
+                if result_tabs.selected_index == 6:
+                    outcome_panel.refresh(state["task_id"])
         elif index == 2:
             render_results({}, force=True)
+            outcome_panel.refresh(None)
         if index == 0:
             refresh_history()
         if index in (0, 4):
@@ -3501,6 +3517,7 @@ def main(page: ft.Page) -> None:
         state["results_key"] = None
         state["net_key"] = None
         state["_sig"] = None
+        outcome_panel.reset()
         log_col.controls.clear()
         result_meta.controls = []
         refresh_inspector()

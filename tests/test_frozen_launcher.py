@@ -66,7 +66,8 @@ raise SystemExit(self_check(Path(sys.argv[1]), resource_root=Path(sys.argv[2]), 
             self.assertTrue(checks["runtime_plan"]["ok"])
             self.assertTrue(checks["swarm_plan_cancel"]["ok"])
             for name in ('session_event_projection', 'session_status_compact', 'network_isolation',
-                         'product_readiness', 'product_demo_offline', 'pdf_backend', 'markdown_code_preview', 'execution_plan', 'experimental_defaults', 'experimental_queue', 'experimental_steering', 'evidence_review_inbox', 'history_index', 'composer_drafts', 'tool_outputs', 'shell_owned_execution', 'shell_stream_capture', 'interaction_controls'):
+                         'product_readiness', 'product_demo_offline', 'pdf_backend', 'markdown_code_preview', 'execution_plan', 'experimental_defaults', 'experimental_queue', 'experimental_steering', 'evidence_review_inbox', 'history_index', 'composer_drafts', 'tool_outputs', 'shell_owned_execution', 'shell_stream_capture', 'interaction_controls',
+                         'outcome_checks'):
                 self.assertIn(name, checks)
                 self.assertTrue(checks[name]['ok'])
             self.assertEqual(report["version"], APP_VERSION)

@@ -304,6 +304,48 @@ class DesktopAsyncTest(unittest.TestCase):
         self.ui.evidence_panel.api.assert_called_once_with({'cmd': 'evidence_brief', 'task_id': 'task-a'})
         self.assertEqual('尚未发送的草稿', self.ui.agent_request.value)
 
+    def test_outcome_checklist_tab_reads_the_current_task_through_bridge(self):
+        from tests.test_outcome_panel import report
+        assert hasattr(self.ui, 'outcome_panel'), 'outcome checklist panel is not connected'
+        panel = self.ui.outcome_panel
+        panel.api = mock.Mock(return_value={'ok': True,
+                                            'checks': report('failed', 'stale', 'pending')})
+        self.ui.open_task('task-a')
+        self.ui.nav_to(2)
+        panel.api.assert_not_called()  # 懒加载：切到「验收清单」页签才读取
+        self.ui.result_tabs.selected_index = 6
+        self.ui.result_tabs.on_change(None)
+        panel.api.assert_called_once_with({'cmd': 'outcome_checks', 'task_id': 'task-a'})
+        labels = [tab.label for tab in self.ui.result_tabs.content.controls[0].tabs]
+        self.assertEqual(7, len(labels))
+        self.assertIn('验收清单', labels)
+        self.assertEqual(7, len(self.ui.result_tabs.content.controls[1].controls))
+        self.assertEqual(7, self.ui.result_tabs.length)
+        rendered = ' '.join(str(control.value) for control in walk(panel.content)
+                            if isinstance(control, ft.Text))
+        self.assertIn('需要复核', rendered)
+        self.assertIn('原结论需要复核', rendered)
+        self.assertFalse(panel.review_button.disabled)
+        draft = self.ui.agent_request.value
+        panel.review_button.on_click(None)
+        self.assertIsInstance(panel.dialog, ft.AlertDialog)
+        self.assertEqual(draft, self.ui.agent_request.value)
+
+    def test_opening_another_task_clears_the_previous_outcome_checklist(self):
+        from tests.test_outcome_panel import report
+        panel = self.ui.outcome_panel
+        panel.api = mock.Mock(return_value={'ok': True, 'checks': report('satisfied')})
+        self.ui.open_task('task-a')
+        self.ui.nav_to(2)
+        self.ui.result_tabs.selected_index = 6
+        self.ui.result_tabs.on_change(None)
+        self.assertTrue(panel.items.controls)
+        self.ui.open_task('task-b')
+        self.assertIsNone(panel.task_id)
+        self.assertEqual([], list(panel.items.controls))
+        self.assertTrue(panel.review_button.disabled)
+        self.assertIn('没有打开的研究任务', panel.empty.value)
+
     def test_only_application_disconnect_stops_new_queue_dispatch(self):
         with mock.patch('src.session_queue.close') as close:
             self.ui.nav_to(0)
