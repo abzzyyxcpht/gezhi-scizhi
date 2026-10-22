@@ -2,7 +2,9 @@
 
 Kosmos-style shared facts: every claim carries a source, a confidence label and a
 lifecycle status. This service records submitted assertions only. It never verifies
-scientific support, source authenticity, novelty, or reproducibility.
+scientific support, source authenticity, novelty, or reproducibility. Support and
+challenge votes only separate asserted from challenged; verified requires an
+independent verification record entered by a person.
 """
 from __future__ import annotations
 
@@ -26,9 +28,11 @@ _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$")
 _SOURCE_FIELDS = {"id", "title", "doi", "url", "source_type", "synthetic"}
 _READ_ONLY = {"created_at", "updated_at", "version", "schema_version", "provenance"}
 _EDITABLE = {"id", "claim", "topic", "task_id", "source", "confidence", "status",
-             "supports", "challenges", "notes", "synthetic"}
+             "supports", "challenges", "notes", "synthetic",
+             "verified_by", "verified_note", "verified_at"}
 _BOUNDARY = ("世界模型事实来自录入内容，未验证来源真实性、科学支持或创新性。"
-             "verified 仅表示录入者自评，不构成独立核查。")
+             "verified 只表示已录入独立核验记录（核验人、说明与时间），不替代科学验证；"
+             "支持票不等于核验。")
 
 _COMMANDS = {"world_fact_list", "world_fact_save", "world_fact_get", "world_fact_delete",
              "world_fact_challenge", "world_fact_support", "world_fact_schema"}
@@ -78,6 +82,30 @@ def _count(value: Any, name: str) -> int:
     return value
 
 
+_VERIFICATION_FIELDS = ("verified_by", "verified_note", "verified_at")
+_NO_RECORD_NOTE = ("［状态说明］原记录标记为 verified，但缺少独立核验记录"
+                   "（verified_by / verified_note / verified_at），已按 asserted 处理。")
+_SYNTHETIC_NOTE = "［状态说明］合成材料不能标记为 verified，已按 asserted 处理。"
+
+
+def _votes_status(fact: dict[str, Any]) -> str:
+    """Votes only separate asserted from challenged; they never verify a claim."""
+    return "challenged" if fact["challenges"] > fact["supports"] else "asserted"
+
+
+def _independent_verification(fact: dict[str, Any]) -> bool:
+    """All three record fields must be present, on non-synthetic material."""
+    source = fact.get("source")
+    source = source if isinstance(source, dict) else {}
+    if fact.get("synthetic") or source.get("synthetic"):
+        return False
+    return all(bool(fact.get(field)) for field in _VERIFICATION_FIELDS)
+
+
+def _annotate_notes(notes: str, marker: str) -> str:
+    return notes if marker in notes else (notes + ("\n" if notes else "") + marker)
+
+
 def _source(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict) or set(value) - _SOURCE_FIELDS:
         raise WorldFactError("source 必须为来源对象，且只能包含公开来源字段。")
@@ -123,9 +151,27 @@ def _validate(fact: dict[str, Any], *, origin: str | None = None) -> dict[str, A
               "supports": _count(fact.get("supports", 0), "supports"),
               "challenges": _count(fact.get("challenges", 0), "challenges"),
               "notes": _text(fact.get("notes", ""), "notes", maximum=20_000),
-              "synthetic": _bool(fact.get("synthetic", False), "synthetic")}
+              "synthetic": _bool(fact.get("synthetic", False), "synthetic"),
+              "verified_by": _text(fact.get("verified_by", ""), "verified_by", maximum=200),
+              "verified_note": _text(fact.get("verified_note", ""), "verified_note", maximum=2000),
+              "verified_at": _text(fact.get("verified_at", ""), "verified_at", maximum=64)}
+    if output["verified_at"]:
+        try:
+            datetime.fromisoformat(output["verified_at"].replace("Z", "+00:00"))
+        except ValueError:
+            raise WorldFactError("verified_at 必须为 ISO-8601 时间。") from None
     if output["status"] == "synthetic" and not output["synthetic"]:
         raise WorldFactError("synthetic 状态必须同时标记 synthetic=true。")
+    # 状态语义：verified 只由独立核验记录产生；票数只在 asserted/challenged 之间取舍。
+    if output["status"] == "synthetic":
+        pass
+    elif _independent_verification(output):
+        output["status"] = "verified"
+    elif output["status"] == "verified":
+        marker = (_SYNTHETIC_NOTE if output["synthetic"] or output["source"]["synthetic"]
+                  else _NO_RECORD_NOTE)
+        output["notes"] = _annotate_notes(output["notes"], marker)
+        output["status"] = "asserted"
     output.update({name: fact[name] for name in _READ_ONLY - {"provenance"}})
     if origin is None:
         provenance = fact.get("provenance", {})
@@ -200,6 +246,10 @@ def schema() -> dict[str, Any]:
                            "challenges": {"type": "integer", "minimum": 0, "maximum": 100_000},
                            "notes": {"type": "string", "maxLength": 20_000},
                            "synthetic": {"type": "boolean", "default": False},
+                           "verified_by": {"type": "string", "maxLength": 200,
+                                           "description": "独立核验人；须与 verified_note、verified_at 同时给出。"},
+                           "verified_note": {"type": "string", "maxLength": 2000},
+                           "verified_at": {"type": "string", "format": "date-time", "maxLength": 64},
                            "version": {"type": "integer", "minimum": 1, "readOnly": True},
                            "provenance": {"type": "object", "readOnly": True},
                            **{field: {"type": "string", "format": "date-time", "readOnly": True}
@@ -207,8 +257,9 @@ def schema() -> dict[str, Any]:
                        }},
             "rules": ["claim 与 source 必填；来源需 id/doi/url 之一。",
                       "synthetic 状态必须同时标记 synthetic=true。",
-                      "world_fact_challenge / world_fact_support 只增减计数并改状态。",
-                      "verified 仅表示录入者自评，不构成独立核查。"],
+                      "world_fact_challenge / world_fact_support 只增减计数，只影响 asserted/challenged。",
+                      "verified 必须同时提供 verified_by、verified_note、verified_at 且材料非合成；"
+                      "缺项按 asserted 处理。"],
             "boundary": _BOUNDARY}
 
 
@@ -276,7 +327,8 @@ def handle(req: dict, *, actor: str = "user") -> dict:
                 del facts[identifier]
                 _write(path, facts)
                 return {"ok": True, "deleted": True, "id": identifier}
-            # 投票：supports/challenges 增减，状态随票数迁移
+            # 投票只增减计数：票数最多把事实改成 asserted/challenged；
+            # verified 只能来自独立核验记录，票数不能自证。
             if cmd in {"world_fact_support", "world_fact_challenge"}:
                 field = "supports" if cmd == "world_fact_support" else "challenges"
                 delta = 1 if req.get("delta", 1) in (1, "1") else -1
@@ -284,9 +336,8 @@ def handle(req: dict, *, actor: str = "user") -> dict:
                 if current < 0:
                     raise WorldFactError(f"{field} 计数不能为负。", "invalid_data")
                 fact[field] = current
-                if fact["status"] != "synthetic":
-                    fact["status"] = ("verified" if fact["supports"] > fact["challenges"] and fact["supports"] >= 2
-                                      else "challenged" if fact["challenges"] > fact["supports"] else "asserted")
+                if fact["status"] != "synthetic" and not _independent_verification(fact):
+                    fact["status"] = _votes_status(fact)
                 fact["updated_at"] = _now()
                 fact["version"] += 1
                 fact = _validate(fact)

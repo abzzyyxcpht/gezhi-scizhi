@@ -28,6 +28,95 @@ from .code_preview import CodePreview
 from .markdown_view import MarkdownView
 from .theme import build_theme, configure_typography, palette, repaint, style_inputs, ui_size, radius, code_font_family, motion_duration
 
+# 终态提示：主文案必须是可读中文；内部 reason、枚举与异常文本只作次要信息。
+# 后端实际提供的字段（不凭空扩展）：AdaptiveDriver._finish 的 reason/error，
+# 其中 message 仅 plan_incomplete 携带；AgentRuntime 确定性路径的 reason（可能
+# 已是中文说明）与 error。原始内容一律保留在会话记录/日志里。
+_TERMINAL_REASON_TEXT = {
+    "permission_denied": "工具调用被权限策略或你的拒绝阻止，可在会话记录查看被拦截的调用后重试。",
+    "plan_incomplete": "执行计划仍有未闭合步骤，已完成部分与依据已记录，可在会话记录查看缺项。",
+    "model_error": "模型请求失败，请检查模型配置与网络后重试。",
+    "model_changed": "会话执行中模型配置已改变，请新建或分叉会话后继续。",
+    "step_budget": "已达到本回合的模型步骤上限，可提高预算或拆分任务后重试。",
+    "token_budget": "已达到本回合的 token 预算，可提高预算或拆分任务后重试。",
+    "context_budget": "上下文超过容量检查，请缩小研究范围或新建会话。",
+    "tool_budget": "单步工具请求超过上限，本次执行已停止。",
+    "unresolved_tool_errors": "仍有工具调用未成功，自动修复次数已用尽，请核查失败的调用后重试。",
+    "interrupted_tool": "中断前可能有工具已经执行，已停止自动重放，请先核查产物后继续。",
+    "unsafe_tool_retry": "此前的失败操作可能已有副作用，不能自动重复执行，请核查后重试。",
+    "invalid_tool_call": "模型返回的工具调用格式无效，本次未执行任何工具。",
+    "invalid_tool_result": "工具返回的执行状态无法核验，已停止执行。",
+    "empty_model_result": "模型没有返回内容或工具调用，本次执行已停止。",
+    "duplicate_tool_call": "模型重复使用了工具调用标识，本次执行已停止。",
+    "plan_state_error": "执行计划状态读取失败，已停止执行，原始日志保留在会话记录。",
+    "task_failed": "关联的科研任务尚未完成，未继续后续步骤。",
+    "tool_failed": "工具执行失败，本次执行已停止，可在会话记录查看失败的调用。",
+    "doom_loop": "单会话步骤超过上限，已停止以避免循环。",
+}
+_TERMINAL_FALLBACK_TEXT = {
+    "blocked": "执行被策略阻止，可在会话记录查看原因。",
+    "error": "执行失败，可在会话记录查看原因。",
+}
+_TERMINAL_STATUS_LABEL = {"blocked": "已阻止", "error": "执行失败"}
+
+
+def _has_cjk(text: str) -> bool:
+    return any("\u4e00" <= char <= "\u9fff" for char in text)
+
+
+def _internal_like(token: str) -> bool:
+    """ASCII 片段是否像内部标识（snake_case 码、点号工具名、异常类名、档位枚举、会话 ID）。"""
+    if len(token) < 3:
+        return False
+    if "_" in token or "." in token:
+        return True
+    if token.endswith(("Error", "Exception")):
+        return True
+    if len(token) >= 8 and token.isalnum() and any(char.isdigit() for char in token):
+        return True
+    return token.islower() and "-" in token
+
+
+def _has_internal_token(text: str) -> bool:
+    token = ""
+    for char in text + " ":
+        if char.isascii() and (char.isalnum() or char in "_.-"):
+            token += char
+            continue
+        if _internal_like(token):
+            return True
+        token = ""
+    return False
+
+
+def _readable_reason(text: str) -> bool:
+    """只接受短的中文说明；英文异常与内部枚举交给映射表与兜底文案。"""
+    text = text.strip()
+    return bool(text) and 2 <= len(text) <= 200 and _has_cjk(text) and not _has_internal_token(text)
+
+
+def _terminal_notice(payload: dict[str, Any], status: str) -> tuple[str, str]:
+    """返回 (用户可读主文案, 次要详情行)；内部 reason 只出现在详情行。"""
+    reason = str(payload.get("reason") or "").strip()
+    message = str(payload.get("message") or "").strip()
+    error = str(payload.get("error") or "").strip()
+    primary = next((text for text in (message, error) if _readable_reason(text)), "")
+    if not primary:
+        primary = _TERMINAL_REASON_TEXT.get(reason, "")
+    if not primary:
+        primary = _TERMINAL_FALLBACK_TEXT.get(status, "执行未完成，可在会话记录查看原因。")
+    details: list[str] = []
+    if reason:
+        details.append(f"原因代码 {reason}" if reason in _TERMINAL_REASON_TEXT else reason)
+    for text in (message, error):
+        if text and text != primary and text not in details:
+            details.append(text)
+    joined = "；".join(details)
+    detail_line = (f"详情：{joined}（可在会话记录查看）" if joined
+                   else "详情可在会话记录查看")
+    return primary, detail_line
+
+
 def main(page: ft.Page) -> None:
     service.init()
     drafts = None
@@ -1675,6 +1764,11 @@ def main(page: ft.Page) -> None:
                 detail = spec.title if spec else str(p.get("agent", ""))
             elif typ == "error":
                 detail = str(p.get("message", ""))
+            elif typ == "completed" and p.get("status") in {"blocked", "error"}:
+                # 受阻回合以 completed 事件落盘：把原始 message/reason 留在日志，
+                # 用户才能在「会话记录」里核验弹窗提到的原因（内部码只在此出现）。
+                detail = " · ".join(str(part) for part in
+                                    (p.get("message") or "", p.get("reason") or "") if part)
             elif typ == "assistant_message":
                 detail = str(p.get("content", ""))[:300]
                 if p.get("tool_calls"):
@@ -1733,13 +1827,14 @@ def main(page: ft.Page) -> None:
             if agent_state.get("approval_session") in (None, agent_state["session_id"]):
                 agent_state["approval_open_id"] = None
                 close_approval_dialog()
-        if status == "blocked":
-            page.show_dialog(ft.SnackBar(
-                ft.Text(f"已阻止：{r.get('reason', '')}"), bgcolor=palette.DANGER))
-        elif status == "error":
-            page.show_dialog(ft.SnackBar(
-                ft.Text(f"执行失败：{r.get('error') or r.get('reason') or '请查看执行记录'}"),
-                bgcolor=palette.DANGER))
+        if status in _TERMINAL_STATUS_LABEL:
+            primary, detail_line = _terminal_notice(r, status)
+            page.show_dialog(ft.SnackBar(ft.Column([
+                ft.Text(f"{_TERMINAL_STATUS_LABEL[status]}：{primary}", size=13,
+                        max_lines=3, overflow=ft.TextOverflow.ELLIPSIS),
+                ft.Text(detail_line, size=11, max_lines=3,
+                        overflow=ft.TextOverflow.ELLIPSIS),
+            ], spacing=2), bgcolor=palette.DANGER))
         agent_empty.visible = False
         refresh_sessions()
         composer.refresh()

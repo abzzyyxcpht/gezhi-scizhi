@@ -328,6 +328,17 @@ def _handle(req: dict[str, Any]) -> dict[str, Any]:
         if cmd == "research_package":
             from . import research_package
             return research_package.handle(req)
+        if cmd == "outcome_checks":
+            tid = str(req.get("task_id") or "")
+            if not service.get(tid):
+                return _err("请先打开有效的研究任务")
+            try:
+                return _ok(checks=service.outcome_checks(tid))
+            except ValueError as exc:
+                return _err(str(exc))
+        if cmd == "outcome_review":
+            from . import outcome_review
+            return outcome_review.handle(req)
         if cmd == "agent_policy":
             from . import research_permissions
             tier = research_permissions.normalize_tier(

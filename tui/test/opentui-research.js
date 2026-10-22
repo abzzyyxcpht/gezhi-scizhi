@@ -190,7 +190,7 @@ assert(f.includes("证据矩阵") && f.includes("文献一") && f.includes("待�
 f = await renderOnce(React.createElement(ExperimentTreePanel, { tree: buildExperimentTree(treeRecords.slice(0, 3)) }))
 assert(f.includes("实验树") && f.includes("基线实验"), "实验树渲染")
 f = await renderOnce(React.createElement(FactsPanel, { facts: factRows, index: 0 }))
-assert(f.includes("世界模型") && f.includes("温度提升产率") && f.includes("已核验"), "世界模型面板渲染")
+assert(f.includes("世界模型") && f.includes("温度提升产率") && f.includes("已复核"), "世界模型面板渲染")
 f = await renderOnce(React.createElement(FactsPanel, { facts: [], index: 0 }))
 assert(f.includes("暂无事实卡片"), "世界模型空态")
 

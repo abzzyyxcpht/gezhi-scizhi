@@ -474,6 +474,23 @@ def evidence_graph(task_id: str, force: bool = False) -> dict[str, Any]:
     return r
 
 
+def outcome_checks(task_id: str) -> dict[str, Any]:
+    """Deterministic acceptance checklist for the delivered outcomes of a task.
+
+    Only facts already recorded in the task are used: artifact keys, material
+    digests, the research-package deficit list and the human review record.
+    """
+    from . import config, outcome_checks, outcome_review, research_package
+    ctx = _tasks.get(task_id)
+    if ctx is None:
+        raise ValueError("请先打开有效的研究任务")
+    manifest = research_package.build_manifest(ctx)
+    review = outcome_review.read(task_id)
+    return outcome_checks.run(ctx.artifacts or {}, manifest,
+                              {"outcome_review": review},
+                              materials_root=config.UPLOAD_DIR)
+
+
 def export_artifacts(task_id: str, out_dir: str | Path) -> list[str]:
     """导出科研产物、确定性证据审计与 JSON 台账，以及实际文件清单。
 

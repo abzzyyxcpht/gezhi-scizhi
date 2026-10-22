@@ -74,6 +74,19 @@ export function summarizeRow(row) {
   return `${id}${status}${title ? ` · ${title}` : ""}`.trim() || JSON.stringify(row).slice(0, 80)
 }
 
+/** 终态按 status 映射：只有成功状态使用成功标记，受阻/取消/中断/失败不得冒充完成 */
+const TERMINAL_STATE_LINES = new Map([
+  ["done", "✓ 会话完成"],
+  ["completed", "✓ 会话完成"],
+  ["blocked", "✗ 已阻止"],
+  ["cancelled", "⏹ 已取消"],
+  ["cancelling", "⏹ 已取消"],
+  ["error", "✗ 出错"],
+  ["failed", "✗ 失败"],
+  ["partial", "◐ 部分完成"],
+  ["interrupted", "⏹ 已中断"],
+])
+
 /** 从 session_events 提取可读行（assistant_message / tool_call / tool_result / completed / error）
  *  @param expanded Ctrl+O 全局展开：工具调用显示参数与结果摘要（默认折叠为单行） */
 export function renderEvents(events = [], { expanded = false } = {}) {
@@ -124,7 +137,9 @@ export function renderEvents(events = [], { expanded = false } = {}) {
         lines.push({ text: `  ${brief}`, dim: result.ok === false, kind: "tool_detail" })
       }
     } else if (ev.kind === "completed") {
-      lines.push({ text: `✓ 会话完成（${payload.status || "done"}）`, dim: true })
+      const status = String(payload.status || "done").trim() || "done"
+      const label = TERMINAL_STATE_LINES.get(status)
+      lines.push({ text: label ? `${label}（${status}）` : `○ ${status}`, dim: true })
     } else if (ev.kind === "error") {
       lines.push({ text: `✗ 出错：${payload.message || payload.error || "未知错误"}`, dim: true })
     }

@@ -246,8 +246,10 @@ export function ExperimentTreePanel({ tree = [], width = 74 }) {
 }
 
 /** 世界模型事实卡片面板：论断 + 置信度 + 状态 + 票数 */
-const FACT_STATUS_COLOR = { verified: TOKENS.success, challenged: TOKENS.error, asserted: TOKENS.info, synthetic: TOKENS.textDim }
-const FACT_STATUS_LABEL = { verified: "已核验", challenged: "受反驳", asserted: "已录入", synthetic: "模拟" }
+// 状态文案与颜色：verified 只表示已录入独立核验记录，不得冒充科学结论已被核验；
+// 票数不等于核验，因此这里不再使用 success 的绿色对勾语义。
+export const FACT_STATUS_COLOR = { verified: TOKENS.textMuted, challenged: TOKENS.error, asserted: TOKENS.info, synthetic: TOKENS.textDim }
+export const FACT_STATUS_LABEL = { verified: "已复核（自评记录）", challenged: "受反驳", asserted: "已录入", synthetic: "模拟" }
 const CONFIDENCE_LABEL = { high: "高", medium: "中", low: "低" }
 
 export function FactsPanel({ facts = [], index = 0, width = 74 }) {

@@ -437,6 +437,111 @@ class DesktopAsyncTest(unittest.TestCase):
         self.assertIn('n=2',text)
         self.assertNotIn('None',text)
 
+    def terminal_toast(self, result):
+        self.page.show_dialog.reset_mock()
+        self.ui.render_agent_result({"session_id": "session-b", **result})
+        snacks = [call.args[0] for call in self.page.show_dialog.call_args_list
+                  if call.args and isinstance(call.args[0], ft.SnackBar)]
+        self.assertTrue(snacks, "受阻/失败结果必须给出提示")
+        main_text, detail_text = snacks[0].content.controls
+        return main_text.value, detail_text.value
+
+    def test_blocked_toast_leads_with_readable_reason_and_keeps_code_in_detail(self):
+        main_text, detail_text = self.terminal_toast(
+            {"status": "blocked", "reason": "permission_denied"})
+        self.assertTrue(main_text.startswith("已阻止："), main_text)
+        self.assertIn("权限策略", main_text)
+        self.assertNotIn("permission_denied", main_text)
+        self.assertIn("permission_denied", detail_text)
+        self.assertIn("会话记录", detail_text)
+
+    def test_error_toast_keeps_chinese_reason_and_demotes_internal_code(self):
+        main_text, detail_text = self.terminal_toast(
+            {"status": "error", "reason": "step_budget", "error": "已达到模型步骤上限"})
+        self.assertTrue(main_text.startswith("执行失败："), main_text)
+        self.assertIn("已达到模型步骤上限", main_text)
+        self.assertNotIn("step_budget", main_text)
+        self.assertIn("step_budget", detail_text)
+
+    def test_blocked_terminal_event_detail_is_readable_in_session_log(self):
+        self.ui.render_events_log([
+            {"type": "user_message", "timestamp": "", "payload": {"text": "请求"}},
+            {"type": "completed", "timestamp": "", "payload": {
+                "status": "blocked", "reason": "permission_denied",
+                "message": "工具被权限策略禁止"}},
+        ])
+        details = [row.content.controls[1].controls[-1].value
+                   for row in self.ui.agent_log_col.controls]
+        joined = " ".join(str(detail) for detail in details)
+        self.assertIn("工具被权限策略禁止", joined)
+        self.assertIn("permission_denied", joined)
+
+
+class TerminalNoticeTextTest(unittest.TestCase):
+    """受阻/失败提示：内部 reason、枚举与异常文本只进详情，主文案必须可读。"""
+
+    def notice(self, payload):
+        return desktop._terminal_notice(payload, payload.get("status", "blocked"))
+
+    def test_blocked_internal_reason_becomes_readable_primary_with_detail(self):
+        primary, detail = self.notice({"status": "blocked", "reason": "permission_denied"})
+        self.assertIn("权限策略", primary)
+        self.assertNotIn("permission_denied", primary)
+        self.assertIn("permission_denied", detail)
+        self.assertIn("会话记录", detail)
+
+    def test_plan_incomplete_message_keeps_tool_ids_out_of_primary(self):
+        message = ("执行计划尚有 2 项未闭合（s1, s2）。请核对 plan.read 中的真实回执并完成"
+                   "可执行步骤；受阻或取消须保留原因，不能宣称全部完成。")
+        primary, detail = self.notice({"status": "blocked", "reason": "plan_incomplete",
+                                       "message": message})
+        self.assertIn("执行计划", primary)
+        self.assertNotIn("plan.read", primary)
+        self.assertNotIn("plan_incomplete", primary)
+        self.assertIn(message, detail)
+        self.assertIn("plan_incomplete", detail)
+
+    def test_readable_chinese_error_text_is_used_as_primary(self):
+        primary, detail = self.notice({
+            "status": "error", "reason": "model_error",
+            "error": "模型接口返回 HTTP 401；请检查认证、协议、模型与参数配置。"})
+        self.assertIn("HTTP 401", primary)
+        self.assertNotIn("model_error", primary)
+        self.assertIn("model_error", detail)
+
+    def test_python_exception_text_is_demoted_to_detail(self):
+        primary, detail = self.notice({
+            "status": "error", "reason": "tool_failed",
+            "error": "FileNotFoundError: [Errno 2] No such file: 'x.csv'"})
+        self.assertIn("工具", primary)
+        self.assertNotIn("FileNotFoundError", primary)
+        self.assertNotIn("Errno", primary)
+        self.assertIn("FileNotFoundError", detail)
+
+    def test_session_identifier_stays_out_of_primary(self):
+        primary, detail = self.notice({"status": "error", "reason": "tool_failed",
+                                       "error": "会话 3f2a9c1b7d4e 执行未完成"})
+        self.assertNotIn("3f2a9c1b7d4e", primary)
+        self.assertIn("3f2a9c1b7d4e", detail)
+
+    def test_reason_carrying_tool_identifier_uses_chinese_fallback(self):
+        primary, detail = self.notice({"status": "blocked",
+                                       "reason": "工具 file.write 已被策略禁用"})
+        self.assertIn("阻止", primary)
+        self.assertNotIn("file.write", primary)
+        self.assertIn("file.write", detail)
+
+    def test_enum_only_reason_uses_mapping_instead_of_the_enum(self):
+        primary, detail = self.notice({"status": "error", "reason": "doom_loop"})
+        self.assertIn("步骤", primary)
+        self.assertNotIn("doom_loop", primary)
+        self.assertIn("doom_loop", detail)
+
+    def test_payload_without_readable_fields_gets_chinese_fallback(self):
+        primary, detail = self.notice({"status": "error"})
+        self.assertIn("执行失败", primary)
+        self.assertIn("会话记录", detail)
+
 
 if __name__ == "__main__":
     unittest.main()

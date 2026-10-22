@@ -1,10 +1,13 @@
 """世界模型事实卡片测试。
 
 覆盖：CRUD、来源校验（doi/url/凭据拒绝）、synthetic 状态一致性、
-版本冲突、投票状态迁移（supports≥2→verified、challenges 领先→challenged）、
+版本冲突、投票只迁移 asserted/challenged（票数不产生 verified）、
+独立核验记录门槛（verified_by + verified_note + verified_at 缺一不可）、
 schema 与边界声明、损坏文件容错。
 """
 from __future__ import annotations
+
+import json
 
 import pytest
 
@@ -67,25 +70,74 @@ def test_version_conflict():
     assert not stale["ok"] and stale["code"] == "version_conflict"
 
 
-def test_votes_migrate_status():
+def test_votes_only_migrate_asserted_and_challenged():
     research_world.handle({"cmd": "world_fact_save", "fact": _fact()})
     research_world.handle({"cmd": "world_fact_support", "id": "wf_1"})
     fact = research_world.handle({"cmd": "world_fact_get", "id": "wf_1"})["fact"]
     assert fact["status"] == "asserted" and fact["supports"] == 1
-    research_world.handle({"cmd": "world_fact_support", "id": "wf_1"})
+    # 两张、四张支持票都不产生 verified：支持票不等于独立核验。
+    for _ in range(3):
+        research_world.handle({"cmd": "world_fact_support", "id": "wf_1"})
     fact = research_world.handle({"cmd": "world_fact_get", "id": "wf_1"})["fact"]
-    assert fact["status"] == "verified" and fact["supports"] == 2
-    research_world.handle({"cmd": "world_fact_challenge", "id": "wf_1"})
-    research_world.handle({"cmd": "world_fact_challenge", "id": "wf_1"})
-    research_world.handle({"cmd": "world_fact_challenge", "id": "wf_1"})
+    assert fact["supports"] == 4 and fact["status"] == "asserted"
+    assert "verified_by" in fact and fact["verified_by"] == ""
+    for _ in range(5):
+        research_world.handle({"cmd": "world_fact_challenge", "id": "wf_1"})
     fact = research_world.handle({"cmd": "world_fact_get", "id": "wf_1"})["fact"]
-    assert fact["status"] == "challenged" and fact["challenges"] == 3
+    assert fact["status"] == "challenged" and fact["challenges"] == 5
     # synthetic 事实的 status 不被投票迁移
     research_world.handle({"cmd": "world_fact_save",
                           "fact": _fact(fid="wf_s", status="synthetic", synthetic=True)})
     research_world.handle({"cmd": "world_fact_challenge", "id": "wf_s"})
     fact = research_world.handle({"cmd": "world_fact_get", "id": "wf_s"})["fact"]
     assert fact["status"] == "synthetic"
+
+
+_VERIFICATION = {"status": "verified", "verified_by": "复核人：张工",
+                 "verified_note": "独立复算原始运行记录，结果一致。",
+                 "verified_at": "2026-10-20T09:30:00Z"}
+
+
+def test_verified_requires_independent_record():
+    r = research_world.handle({"cmd": "world_fact_save", "fact": _fact(**_VERIFICATION)})
+    assert r["ok"] and r["fact"]["status"] == "verified"
+    assert r["fact"]["verified_by"] == "复核人：张工"
+    assert r["fact"]["verified_note"] and r["fact"]["verified_at"]
+    # 独立核验记录存在时，票数不再改写 verified
+    research_world.handle({"cmd": "world_fact_challenge", "id": "wf_1"})
+    research_world.handle({"cmd": "world_fact_challenge", "id": "wf_1"})
+    fact = research_world.handle({"cmd": "world_fact_get", "id": "wf_1"})["fact"]
+    assert fact["status"] == "verified" and fact["challenges"] == 2
+
+
+def test_verified_without_full_record_is_asserted_and_annotated():
+    partial = research_world.handle({"cmd": "world_fact_save", "fact": _fact(
+        fid="wf_p", status="verified", verified_by="张工")})
+    assert partial["ok"] and partial["fact"]["status"] == "asserted"
+    assert "缺少独立核验记录" in partial["fact"]["notes"]
+    no_verifier = research_world.handle({"cmd": "world_fact_save", "fact": _fact(
+        fid="wf_q", status="verified", verified_note="看起来没问题",
+        verified_at="2026-10-20T09:30:00Z")})
+    assert no_verifier["fact"]["status"] == "asserted"
+    assert "缺少独立核验记录" in no_verifier["fact"]["notes"]
+
+
+def test_legacy_verified_without_record_reads_as_asserted(isolated_world):
+    research_world.handle({"cmd": "world_fact_save", "fact": _fact(fid="wf_legacy")})
+    store = isolated_world / "world_facts.json"
+    payload = json.loads(store.read_text(encoding="utf-8"))
+    payload["facts"]["wf_legacy"]["status"] = "verified"
+    store.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    fact = research_world.handle({"cmd": "world_fact_get", "id": "wf_legacy"})["fact"]
+    assert fact["status"] == "asserted"
+    assert "缺少独立核验记录" in fact["notes"]
+
+
+def test_synthetic_material_cannot_be_verified():
+    r = research_world.handle({"cmd": "world_fact_save",
+                               "fact": _fact(fid="wf_syn", synthetic=True, **_VERIFICATION)})
+    assert r["ok"] and r["fact"]["status"] == "asserted"
+    assert "合成材料" in r["fact"]["notes"]
 
 
 def test_vote_negative_rejected():
@@ -108,7 +160,10 @@ def test_filters_and_delete():
 def test_schema_and_boundary():
     s = research_world.handle({"cmd": "world_fact_schema"})
     assert s["ok"] and s["schema"]["required"] == ["claim", "source"]
-    assert "未验证" in s["boundary"]
+    assert "未验证" in s["boundary"] and "支持票不等于核验" in s["boundary"]
+    for field in ("verified_by", "verified_note", "verified_at"):
+        assert field in s["schema"]["properties"]
+    assert any("只影响 asserted/challenged" in rule for rule in s["rules"])
     unknown = research_world.handle({"cmd": "world_fact_frobnicate"})
     assert not unknown["ok"] and unknown["code"] == "unknown_command"
 
