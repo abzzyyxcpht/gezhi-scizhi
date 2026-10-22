@@ -55,6 +55,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="compare with the committed manifest instead of writing")
     args = parser.parse_args(argv)
 
+    # Only tracked files belong to the reviewed manifest. Run this AFTER
+    # `git add` so newly added paths are covered by the same gate, and
+    # refresh once more if any tracked file changes afterwards.
+    # staging so newly added paths are covered by the same gate.
     manifest = build_manifest()
     target = ROOT / MANIFEST
     rendered = json.dumps(manifest, indent=2, ensure_ascii=False)
