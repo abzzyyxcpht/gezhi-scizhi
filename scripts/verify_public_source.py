@@ -8,6 +8,14 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 
+# A file that is tracked but absent from the manifest is almost always an
+# ordering mistake: the manifest was refreshed before the path was staged.
+# Say so instead of leaving the reader to guess.
+_ORDERING_HINT = (
+    "Unreviewed tracked file usually means the manifest was refreshed before "
+    "staging: run `git add -A` first, then `python scripts/refresh_source_manifest.py`."
+)
+
 
 def verify(root: Path = ROOT) -> list[str]:
     manifest = json.loads((root / "SOURCE_MANIFEST.json").read_text(encoding="utf-8"))
@@ -24,7 +32,18 @@ def verify(root: Path = ROOT) -> list[str]:
     return errors
 
 
+def hint(errors: list[str]) -> str:
+    """Actionable next step for the failures that have one."""
+    if any(error.startswith("Unreviewed tracked file") for error in errors):
+        return _ORDERING_HINT
+    if any(error.startswith("Changed public file") for error in errors):
+        return ("Changed public file means the reviewed bytes drifted: refresh with "
+                "`python scripts/refresh_source_manifest.py` after staging your changes.")
+    return ""
+
+
 if __name__ == "__main__":
     problems = verify()
-    print(json.dumps({"ok": not problems, "errors": problems}, ensure_ascii=False))
+    print(json.dumps({"ok": not problems, "errors": problems, "hint": hint(problems)},
+                     ensure_ascii=False))
     raise SystemExit(1 if problems else 0)
