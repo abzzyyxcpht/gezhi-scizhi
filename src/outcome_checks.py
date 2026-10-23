@@ -191,6 +191,11 @@ def _check_citations(artifacts: dict[str, Any]) -> dict[str, Any]:
                 "evidence": [], "detail": "没有参考文献条目"}
     incomplete, unconfirmed, advice = [], [], []
     legacy_count = 0
+    pool = (artifacts.get("lit_filter") or {}).get("pool") or []
+    sources: dict[str, list[dict[str, Any]]] = {}
+    for source in pool:
+        if isinstance(source, dict) and isinstance(source.get("id"), str):
+            sources.setdefault(source["id"].strip(), []).append(source)
     for entry in entries:
         if not isinstance(entry, dict):
             incomplete.append({"citation": "(无标题)", "message": "参考文献条目必须为对象"})
@@ -203,8 +208,16 @@ def _check_citations(artifacts: dict[str, Any]) -> dict[str, Any]:
             # format_references emits text/source_id/issues; earlier exports use id.
             if not fields["text"]:
                 problems.append("缺少非空的排版文本")
-            if not (fields["source_id"] or fields["id"]):
+            source_id = fields["source_id"] or fields["id"]
+            if not source_id:
                 problems.append("缺少来源标识")
+            elif pool:
+                matched = sources.get(source_id, [])
+                if not matched:
+                    problems.append("来源标识不在当前文献池中")
+                elif any(not isinstance(source.get("title"), str) or not source["title"].strip()
+                         for source in matched):
+                    problems.append("当前来源缺少有效的文献标题")
         else:
             # Retain support for historical metadata-only citation records.
             legacy_count += 1

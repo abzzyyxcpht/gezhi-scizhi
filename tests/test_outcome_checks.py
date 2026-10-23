@@ -103,6 +103,43 @@ def test_real_reference_formatter_output_passes_citation_check(style):
     assert item["state"] == "satisfied"
 
 
+@pytest.mark.parametrize("title", ["", "   ", None, False, []])
+def test_formatter_output_cannot_hide_a_missing_source_title(title):
+    from src.citation.gbt7714 import format_references
+    from src.orchestrator.engine import TaskContext
+
+    ctx = TaskContext("citation-source-title", "research_pipeline", {"cite_style": "gbt7714"})
+    ctx.artifacts["lit_filter"] = {"pool": [{
+        "id": "W1", "title": title, "authors": ["Jane Doe"], "year": 2025,
+        "venue": "Example Journal", "pages": "1-5", "doi": "10.1234/example",
+    }]}
+    ctx.artifacts["citation"] = format_references(ctx, {})
+    assert ctx.artifacts["citation"]["entries"][0]["issues"] == []
+    item = next(row for row in oc.build_checklist(ctx.artifacts) if row["id"] == "citations:format")
+    assert item["state"] == "failed"
+    assert "标题" in item["evidence"][0]["message"]
+
+
+def test_formatted_reference_checks_current_source_title_type():
+    art = artifacts(lit_filter={"pool": [{"id": "W1", "title": 123}]},
+                    citation={"entries": [{"source_id": "W1", "text": "Previously formatted reference"}]})
+    item = next(row for row in oc.build_checklist(art) if row["id"] == "citations:format")
+    assert item["state"] == "failed"
+
+
+def test_formatted_reference_must_resolve_to_nonempty_current_pool():
+    art = artifacts(citation={"entries": [{"source_id": "missing", "text": "Formatted reference"}]})
+    item = next(row for row in oc.build_checklist(art) if row["id"] == "citations:format")
+    assert item["state"] == "failed"
+    assert "文献池" in item["evidence"][0]["message"]
+
+
+def test_detached_legacy_formatted_reference_remains_supported():
+    art = {"citation": {"entries": [{"id": "legacy", "text": "Detached formatted reference"}]}}
+    item = next(row for row in oc.build_checklist(art) if row["id"] == "citations:format")
+    assert item["state"] == "satisfied"
+
+
 def test_formatted_reference_with_legacy_id_is_supported():
     art = artifacts(citation={"entries": [{"id": "W1", "text": "[1] Doe J. Source title. 2025."}]})
     item = next(row for row in oc.build_checklist(art) if row["id"] == "citations:format")
