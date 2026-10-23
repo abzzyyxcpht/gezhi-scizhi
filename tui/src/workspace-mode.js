@@ -9,7 +9,7 @@ const researchCommands = new Set(['new', 'tasks', 'workflows', 'workflow', 'loop
   'pause', 'resume', 'confirm', 'cancel', 'rerun', 'delete', 'drop', 'pool', 'digest', 'outline', 'cites',
   'export', 'stats', 'style', 'board', 'graph', 'audit', 'skills-selection', 'read', 'ledger', 'evidence',
   'swarm', 'notebook', 'reviews', 'automations', 'schedule', 'handoff',
-  'hypotheses', 'consensus', 'matrix', 'experiments', 'novelty', 'goal', 'facts', 'fact', 'peer-review', 'reproduce', 'config']);
+  'hypotheses', 'consensus', 'matrix', 'experiments', 'novelty', 'goal', 'facts', 'fact', 'peer-review', 'reproduce', 'config', 'checks']);
 const sessionCommands = new Set(['agent', 'plan', 'review', 'sessions', 'continue', 'cancel-agent', 'session',
   'session-status', 'progress', 'compact', 'queue', 'steer', 'history', 'outputs', 'session-export', 'approve', 'deny',
   'agents', 'spawn', 'activity', 'chat', 'rewind']);
@@ -19,7 +19,7 @@ const workspaceCommands = new Set(['project', 'terminal', 'pdf', 'memory', 'comm
 const busyAllowed = new Set(['mode', 'cancel-agent', 'steer', 'reviews', 'history', 'outputs', 'queue', 'progress']);
 const remoteDisabled = new Set(['mode', 'agent', 'spawn', 'review', 'plan', 'model', 'models', 'reasoning',
   'connection', 'profile', 'settings', 'toggle', 'plugins', 'skills', 'skill', 'mcp', 'git', 'doctor',
-  'init', 'context', 'rerun', 'delete', 'drop', 'export', 'stats', 'agents', 'rewind', 'remote',
+  'init', 'context', 'rerun', 'delete', 'drop', 'export', 'stats', 'agents', 'rewind', 'remote', 'checks',
   'board', 'graph', 'ledger', 'audit', 'skills-selection', 'hypotheses', 'consensus', 'matrix', 'experiments', 'goal', 'facts', 'peer-review', 'reproduce', 'config',
   ...FEATURE_COMMANDS.filter(row => row.name !== 'evidence').map(row => row.name)]);
 const effects = {
@@ -27,6 +27,7 @@ const effects = {
   agent: '启动或继续 Agent 会话', plan: '只读规划', review: '只读审计',
   approve: '批准工具调用', deny: '拒绝工具调用', 'cancel-agent': '取消 Agent 会话',
   steer: '补充当前回合', queue: '管理下一轮队列', history: '读取会话历史', outputs: '读取工具输出',
+  checks: '查看成果依据；人工复核绑定刚查看的清单版本',
 };
 const shortcuts = { mode: 'Ctrl+G', palette: 'Ctrl+P', 'cancel-agent': 'Esc', help: '/help' };
 

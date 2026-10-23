@@ -4,7 +4,7 @@ import React from "react"
 import { TOKENS, MODE_TOKENS, modeColor } from "./theme/tokens.js"
 import { SYMBOLS } from "./theme/symbols.js"
 import { contentWidthForTerminal, sidebarLayoutForTerminal, clipToWidth } from "./layout/width-budget.js"
-import { BrandHeader } from "./components/brand-header.js"
+import { BrandHeader, brandHeaderRows } from "./components/brand-header.js"
 import { Sidebar } from "./components/sidebar.js"
 import { FooterTop, FooterBottom } from "./components/footer-bar.js"
 import { TranscriptView, chromeRows } from "./components/transcript.js"
@@ -54,6 +54,8 @@ export function AppShell({ state = {} }) {
   const caption = typeStyle("ui_caption")
   const sidebarLayout = sidebarLayoutForTerminal(terminalWidth, { userHidden: sidebar.hidden, mode: sidebar.mode ?? appearance.sidebar_mode })
   const contentWidth = contentWidthForTerminal(terminalWidth, { sidebarVisible: sidebarLayout === "docked" })
+  const mainWidth = contentWidth + 4
+  const headerRows = brandHeaderRows({ workspaceMode, status, width: mainWidth })
   const color = state.shellMode ? TOKENS.shellMode : modeColor(TOKENS, workspaceMode)
   void contentWidth // Phase 2 末期接入逐面板高预算；先保证单一推导入口被消费
 
@@ -65,18 +67,25 @@ export function AppShell({ state = {} }) {
     )
   }
 
+  // 高度只剩一两行时，保留可编辑入口，避免页头挤走输入光标。
+  if ((state.terminalHeight ?? 24) <= 2) {
+    return h("box", { width: terminalWidth, height: state.terminalHeight, flexDirection: "column", backgroundColor: TOKENS.background },
+      state.terminalHeight > 1 ? h("text", { content: "格致", fg: TOKENS.accent }) : null,
+      h("text", { content: clipToWidth(`❯ ${draftWithCursor(draft, state.cursor ?? 0).replaceAll("\n", " ")}`, terminalWidth), fg: TOKENS.text }))
+  }
+
   return h(
     "box",
     { width: "100%", height: "100%", flexDirection: "row", backgroundColor: TOKENS.background },
     h(
       "box",
-      { flexDirection: "column", flexGrow: 1, minWidth: 40 },
-      h(BrandHeader, { workspaceMode, shimmerFrame: reducedMotion ? null : shimmerFrame, status }),
+      { flexDirection: "column", flexGrow: 1, minWidth: 0, width: mainWidth },
+      h(BrandHeader, { workspaceMode, shimmerFrame: reducedMotion ? null : shimmerFrame, status, width: mainWidth }),
       state.drill
         ? state.drill
         : h(TranscriptView, {
         lines,
-        height: Math.max(1, (state.terminalHeight ?? 24) - chromeRows(state.panelRows ?? 0, draftWithCursor(draft, state.cursor ?? 0).split("\n").length)),
+        height: Math.max(1, (state.terminalHeight ?? 24) - chromeRows(state.panelRows ?? 0, draftWithCursor(draft, state.cursor ?? 0).split("\n").length) - (headerRows - 1)),
         offset: state.scrollOffset ?? 0,
         width: contentWidthForTerminal(state.terminalWidth ?? 80, { sidebarVisible: sidebarLayout === "docked" }),
         onScroll: state.onScroll,
@@ -115,7 +124,8 @@ export function AppShell({ state = {} }) {
         })
       ),
       state.panel ? h("box", { marginTop: geometry.panelGap, flexShrink: 0 }, state.panel) : null,
-      h(FooterTop, { slotValues, tips, tickMs: state.tickMs ?? 0, workspaceMode, expanded: state.expanded }),
+      h(FooterTop, { slotValues: mainWidth < 64 ? { mode: slotValues.mode } : slotValues,
+        tips: mainWidth < 64 ? [] : tips, tickMs: state.tickMs ?? 0, workspaceMode, expanded: state.expanded }),
       appearance.inspector_visible ? h(FooterBottom, { used, total, warningCtx: state.warningCtx }) : null
     ),
     sidebarLayout === "docked" ? h(Sidebar, { terminalWidth, workspaceMode, hidden: false, sections: sidebar.sections, density: appearance.density }) : null,

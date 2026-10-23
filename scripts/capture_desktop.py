@@ -49,7 +49,8 @@ SCREENS = {"home": "新任务", "agent": "智能体", "monitor": "研究进度",
            "queue-paused": "智能体", "queue-many": "智能体",
            "evidence-brief": "智能体", "evidence-draft": "智能体",
            "onboarding": "智能体", "onboarding-config": "智能体", "onboarding-demo": "智能体",
-           "results": "文献与成果", "settings": "设置", "data": "数据分析",
+           "results": "文献与成果", "outcome-checks": "文献与成果", "outcome-review": "文献与成果",
+           "settings": "设置", "data": "数据分析",
            "home-options": "新任务", "agent-plan": "智能体",
            "tower": "智能体", "swarm-plan": "智能体", "swarm-approval": "智能体", "reasoning": "智能体",
            "agent-approval": "智能体", "agent-policy": "智能体",
@@ -195,6 +196,117 @@ async def expand_section(page, label: str, expanded: bool = True) -> None:
         await asyncio.sleep(.2)
         return
     raise RuntimeError(f'No expandable section: {label}')
+
+
+def _outcome_capture_task(data_dir: Path, task_id: str):
+    """Refuse to read or seed a task outside this run's offline fixture."""
+    from src import config, service
+    from src.orchestrator import engine
+
+    isolated = data_dir.resolve()
+    if (Path(config.DATA_DIR).resolve() != isolated
+            or any(not Path(location).resolve().is_relative_to(isolated)
+                   for location in (config.UPLOAD_DIR, config.CHECKPOINT_DIR,
+                                    service.CHECKPOINT_DIR, engine.CHECKPOINT_DIR))):
+        raise RuntimeError('Outcome QA must stay inside the isolated data directory')
+    service.restore_tasks()
+    task = service.get(task_id)
+    if (task is None or task.params.get('offline') is not True
+            or task.params.get('topic') != DEMO_TOPIC):
+        raise RuntimeError('Outcome QA requires the offline demonstration task')
+    return task
+
+
+def seed_outcome_material(data_dir: Path, task_id: str) -> dict:
+    """Add one clearly synthetic local source; checks still use the real service."""
+    from src import config
+
+    task = _outcome_capture_task(data_dir, task_id)
+    material = Path(config.UPLOAD_DIR) / 'outcome-capture-fixture.md'
+    text = ('# 离线界面验收夹具\n\n'
+            '这份合成材料只用于检查原生界面的材料指纹与证据展开，不是真实论文或实验结果。\n'
+            '示例问题：核对材料版本后，再由研究者对成果作出明确复核决定。\n'
+            '本次截图不提交人工复核，不调用在线模型。\n')
+    material.write_text(text, encoding='utf-8')
+    digest = hashlib.sha256(material.read_bytes()).hexdigest()
+    material_id = 'native-qa-outcome-material'
+    pool = task.artifacts.setdefault('lit_filter', {}).setdefault('pool', [])
+    if not any(row.get('id') == material_id for row in pool):
+        pool.append({'id': material_id, 'title': '离线界面验收夹具 · 材料版本核对',
+                     'path': str(material), 'sha256': digest, 'source_type': 'demo',
+                     'demo': True, 'synthetic': True})
+        task.save()
+    return {'fixture': True, 'task_id': task_id, 'material_file': material.name,
+            'sha256': digest, 'scientific_verification': 'not_performed'}
+
+
+async def select_outcome_task(page, data_dir: Path, task_id: str, ui: dict | None) -> None:
+    """Use the history control's real callback even when a narrow sidebar is hidden."""
+    _outcome_capture_task(data_dir, task_id)
+    if not ui or not callable(ui.get('open_task')):
+        raise RuntimeError('Outcome QA requires the helper-captured task callback')
+    result = ui['open_task'](task_id)
+    if inspect.isawaitable(result):
+        await result
+    page.update()
+    await wait_for(lambda: ui['state'].get('task_id') == task_id, 'offline task selection')
+
+
+async def prepare_outcome_state(page, screen: str, data_dir: Path, ui: dict | None) -> dict:
+    """Select the real seventh results tab and optionally fill an unsaved review."""
+    from src import outcome_review, service
+
+    if not ui or any(key not in ui for key in ('outcome_panel', 'result_tabs', 'state')):
+        raise RuntimeError('Outcome QA requires the helper-captured desktop controls')
+    task_id = ui['state'].get('task_id')
+    _outcome_capture_task(data_dir, task_id)
+    before = outcome_review.read(task_id)
+    panel, tabs = ui['outcome_panel'], ui['result_tabs']
+    tabs.selected_index = 6
+    result = tabs.on_change(SimpleNamespace(control=tabs, page=page, data='6'))
+    if inspect.isawaitable(result):
+        await result
+    page.update()
+    settled = [None, 0.0]
+
+    def receipt_settled() -> bool:
+        # A native tab notification can follow the scripted callback and replace
+        # freshly loaded cards. Expand only the final, mounted receipt's controls.
+        current = panel.checks if panel.task_id == task_id else None
+        now = asyncio.get_running_loop().time()
+        if current is not settled[0]:
+            settled[:] = [current, now]
+        return current is not None and now - settled[1] >= .4
+
+    await wait_for(receipt_settled, 'stable real outcome checklist receipt')
+    actual = service.outcome_checks(task_id)
+    if panel.checks != actual:
+        raise RuntimeError('Visible outcome checks do not match the real service snapshot')
+    tiles = [control for control in walk_controls(panel.items)
+             if type(control).__name__ == 'ExpansionTile'
+             and getattr(getattr(control, 'title', None), 'value', None) == '查看依据']
+    if not tiles:
+        raise RuntimeError('The real outcome checklist has no expandable evidence')
+    await expand_section(page, '查看依据')
+    if screen == 'outcome-review':
+        result = panel.review_button.on_click(
+            SimpleNamespace(control=panel.review_button, page=page, data=None))
+        if inspect.isawaitable(result):
+            await result
+        await wait_for(lambda: panel.dialog is not None, 'outcome review dialog')
+        panel.reviewer.value = '离线验收示例研究者'
+        panel.review_note.value = '仅演示核对材料版本、引用与成果的操作；本次截图不提交人工复核。'
+        if panel.review_decision.value is not None:
+            raise RuntimeError('The review dialog must not preselect a decision')
+        page.update()
+    if outcome_review.read(task_id) != before:
+        raise RuntimeError('Screenshot preparation unexpectedly submitted a review')
+    return {'fixture': True, 'task_id': task_id, 'revision': actual.get('revision'),
+            'verdict': actual['verdict'], 'counts': actual['counts'],
+            'evidence_expanded': sum(bool(tile.expanded) for tile in tiles),
+            'review_dialog_open': screen == 'outcome-review', 'review_submitted': False,
+            'decision_selected': False, 'scientific_verification': 'not_performed',
+            'no_model_request': True}
 
 
 async def prepare_draft_state(page, screen: str, ui: dict | None) -> dict:
@@ -473,6 +585,8 @@ async def prepare_workspace_mode_state(page, screen: str, data_dir: Path, ui: di
 
 
 async def prepare_state(page, screen: str, data_dir: Path, *, ui: dict | None = None, diagnostic=None) -> dict:
+    if screen in {'outcome-checks', 'outcome-review'}:
+        return await prepare_outcome_state(page, screen, data_dir, ui)
     if SCREENS.get(screen) == '智能体':
         await expand_section(page, '会话状态与上下文', screen in {
             'session-status', 'session-compacted', 'context-inspector',
@@ -1124,6 +1238,9 @@ def main() -> int:
     if args.ui_font_size is not None:
         settings.save({'ui_font_size': args.ui_font_size})
     demo = run_demo(DEMO_TOPIC, out_dir=data_dir / "exports" / "fixture", offline=True)
+    outcome_fixture = (seed_outcome_material(data_dir, demo['task_id'])
+                       if any(screen in {'outcome-checks', 'outcome-review'} for screen in screens)
+                       else None)
     from src.research_notebook import handle as notebook
     notebook({"cmd": "notebook_save", "record": {"kind": "hypothesis", "title": "反例检索能否减少综述中的过度归因？",
         "question": "显式检索反驳证据，是否能改善生成综述对方法局限的覆盖？", "status": "planned", "synthetic": True,
@@ -1154,6 +1271,8 @@ def main() -> int:
               "capture_method": args.capture_method, "captures": [],
               "theme": args.theme, "font_scale": args.font_scale,
               "status": "running"}
+    if outcome_fixture:
+        report['outcome_fixture'] = outcome_fixture
 
     def write_report() -> None:
         (output / "manifest.json").write_text(
@@ -1162,12 +1281,13 @@ def main() -> int:
     def wrapped(page: ft.Page) -> None:
         ui = {}
         diagnostic_ui = {}
-        needs_controls = any(screen in {'draft-restored', 'draft-conflict', 'tool-output-read', 'tool-output-search', 'model-control', 'activity-tree', 'command-search', 'general-workspace', 'research-mode', 'mode-commands'} for screen in screens)
+        needs_controls = any(screen in {'draft-restored', 'draft-conflict', 'tool-output-read', 'tool-output-search', 'model-control', 'activity-tree', 'command-search', 'general-workspace', 'research-mode', 'mode-commands', 'outcome-checks', 'outcome-review'} for screen in screens)
         if needs_controls or args.diagnostics:
             previous_profile = sys.getprofile()
             wanted = ('drafts', 'agent_request', 'agent_state', 'select_agent_session', 'get_runtime', 'finish_native_close',
                       'quick_model_controls', 'activity_panel', 'agent_options', 'agent_toolbox', 'onboarding', 'tools_panel', 'agent_activity',
-                      'workspace_mode_control', 'agent_pick', 'workspace_mode', 'breadcrumb', 'nav_index')
+                      'workspace_mode_control', 'agent_pick', 'workspace_mode', 'breadcrumb', 'nav_index',
+                      'outcome_panel', 'result_tabs', 'state', 'open_task')
 
             def capture_locals(frame, event, arg):
                 if event == 'return' and frame.f_code is desktop.main.__code__:
@@ -1221,7 +1341,9 @@ def main() -> int:
                     await asyncio.sleep(args.settle)
                     for screen in screens:
                         await close_own_dialogs(page)
-                        if screen in {"monitor", "results", "research-audit"}:
+                        if screen in {'outcome-checks', 'outcome-review'}:
+                            await select_outcome_task(page, data_dir, demo['task_id'], ui)
+                        elif screen in {"monitor", "results", "research-audit"}:
                             await click_text(page, DEMO_TOPIC)
                         await navigate(page, SCREENS[screen])
                         await asyncio.sleep(.35)

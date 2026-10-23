@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+import pytest
 
 from src import outcome_checks as oc
 
@@ -85,6 +86,100 @@ def test_empty_citation_list_fails():
     assert item["state"] == "failed"
 
 
+@pytest.mark.parametrize("style", ["gbt7714", "apa"])
+def test_real_reference_formatter_output_passes_citation_check(style):
+    from src.citation.gbt7714 import format_references
+    from src.orchestrator.engine import TaskContext
+
+    ctx = TaskContext("citation-schema", "research_pipeline", {"cite_style": style})
+    ctx.artifacts["lit_filter"] = {"pool": [{
+        "id": "W1", "title": "Source title", "authors": ["Jane Doe"],
+        "year": 2025, "venue": "Example Journal", "pages": "1-5", "doi": "10.1234/example",
+    }]}
+    ctx.artifacts["citation"] = format_references(ctx, {})
+    entry = ctx.artifacts["citation"]["entries"][0]
+    assert "title" not in entry and entry["text"] and entry["source_id"] == "W1"
+    item = next(row for row in oc.build_checklist(ctx.artifacts) if row["id"] == "citations:format")
+    assert item["state"] == "satisfied"
+
+
+def test_formatted_reference_with_legacy_id_is_supported():
+    art = artifacts(citation={"entries": [{"id": "W1", "text": "[1] Doe J. Source title. 2025."}]})
+    item = next(row for row in oc.build_checklist(art) if row["id"] == "citations:format")
+    assert item["state"] == "satisfied"
+
+
+@pytest.mark.parametrize("entry", [
+    {}, None, "formatted text", {"text": ""}, {"id": "W1", "text": "   "},
+    {"id": "W1", "text": ["not a string"]}, {"text": "formatted text"},
+    {"text": "formatted text", "source_id": []}, {"title": []}, {"title": 123},
+    {"title": "Paper", "text": "", "id": "W1"},
+])
+def test_invalid_reference_rows_are_not_silently_ignored(entry):
+    art = artifacts(citation={"entries": [{"title": "Valid legacy entry"}, entry]})
+    item = next(row for row in oc.build_checklist(art) if row["id"] == "citations:format")
+    assert item["state"] == "failed"
+
+
+def test_formatter_reported_missing_fields_are_visible_as_failed_evidence():
+    from src.citation.gbt7714 import format_references
+    from src.orchestrator.engine import TaskContext
+
+    ctx = TaskContext("citation-incomplete", "research_pipeline", {"cite_style": "gbt7714"})
+    ctx.artifacts["lit_filter"] = {"pool": [{"id": "W1", "title": "Incomplete source"}]}
+    ctx.artifacts["citation"] = format_references(ctx, {})
+    item = next(row for row in oc.build_checklist(ctx.artifacts) if row["id"] == "citations:format")
+    assert item["state"] == "failed"
+    assert item["evidence"][0]["citation"] == "W1"
+    assert "缺作者" in item["evidence"][0]["message"]
+
+
+def test_formatter_optional_page_and_doi_advice_does_not_fail_valid_reference():
+    from src.citation.gbt7714 import format_references
+    from src.orchestrator.engine import TaskContext
+
+    ctx = TaskContext("citation-advice", "research_pipeline", {"cite_style": "gbt7714"})
+    ctx.artifacts["lit_filter"] = {"pool": [{"id": "W1", "title": "Source title",
+                                            "authors": ["Jane Doe"], "year": 2025,
+                                            "venue": "Example Journal"}]}
+    ctx.artifacts["citation"] = format_references(ctx, {})
+    item = next(row for row in oc.build_checklist(ctx.artifacts) if row["id"] == "citations:format")
+    assert item["state"] == "satisfied"
+    assert "补全建议" in item["detail"]
+    messages = " ".join(row.get("message", "") for row in item["evidence"])
+    assert "缺页码" in messages and "缺 DOI" in messages
+
+
+@pytest.mark.parametrize("missing", ["authors", "year", "venue"])
+def test_formatter_required_metadata_gaps_fail_individually(missing):
+    from src.citation.gbt7714 import format_references
+    from src.orchestrator.engine import TaskContext
+
+    source = {"id": "W1", "title": "Source title", "authors": ["Jane Doe"],
+              "year": 2025, "venue": "Example Journal", "pages": "1-5", "doi": "10.1234/example"}
+    source.pop(missing)
+    ctx = TaskContext("citation-required", "research_pipeline", {"cite_style": "gbt7714"})
+    ctx.artifacts["lit_filter"] = {"pool": [source]}
+    ctx.artifacts["citation"] = format_references(ctx, {})
+    item = next(row for row in oc.build_checklist(ctx.artifacts) if row["id"] == "citations:format")
+    assert item["state"] == "failed"
+    assert "必需元数据" in item["criterion"]
+
+
+def test_unrecognized_citation_issue_needs_confirmation():
+    art = artifacts(citation={"entries": [{"source_id": "W1", "text": "Formatted reference",
+                                          "issues": ["new checker warning"]}]})
+    item = next(row for row in oc.build_checklist(art) if row["id"] == "citations:format")
+    assert item["state"] == "unknown"
+    assert "new checker warning" in item["evidence"][0]["message"]
+
+
+def test_legacy_title_record_check_describes_its_limited_scope():
+    item = next(row for row in oc.build_checklist(artifacts()) if row["id"] == "citations:format")
+    assert item["state"] == "satisfied"
+    assert "已有字段" in item["detail"]
+
+
 def test_recorded_deficits_block_the_deficit_check():
     item = next(row for row in oc.build_checklist(artifacts(), {"deficits": [
         {"code": "synthetic_material", "message": "含模拟材料"}]}) if row["id"] == "package:deficits")
@@ -103,12 +198,14 @@ def test_manual_review_requires_a_complete_human_record():
     partial = next(row for row in oc.build_checklist(
         artifacts(), {}, {"outcome_review": {"by": "张三"}}) if row["id"] == "review:manual")
     assert partial["state"] == "pending"
-    assert "note" in partial["detail"] or "at" in partial["detail"]
+    assert "复核说明" in partial["detail"] and "记录时间" in partial["detail"]
     done = next(row for row in oc.build_checklist(
-        artifacts(), {}, {"outcome_review": {"by": "张三", "note": "已核对引用", "at": "2026-10-22T10:00:00"}})
+        artifacts(), {}, {"outcome_review": {"by": "张三", "note": "已核对引用", "at": "2026-10-22T10:00:00",
+                                             "decision": "approved", "revision": oc.run(artifacts(), {})["revision"]}})
         if row["id"] == "review:manual")
     assert done["state"] == "satisfied"
     assert done["evidence"][0]["by"] == "张三"
+    assert done["evidence"][0]["note"] == "已核对引用"
 
 
 def test_a_model_statement_cannot_close_the_manual_review():
@@ -116,9 +213,7 @@ def test_a_model_statement_cannot_close_the_manual_review():
     fake = {"outcome_review": {"by": "assistant", "note": "我认为没问题",
                                "at": "2026-10-22T10:00:00", "model": "gpt-5"}}
     item = next(row for row in oc.build_checklist(artifacts(), {}, fake) if row["id"] == "review:manual")
-    # The record is complete, so the check passes on its own terms; what matters
-    # is that nothing in the model output could have produced it.
-    assert item["state"] in {"satisfied", "pending"}
+    assert item["state"] == "pending"
     assert item["kind"] == "manual_review"
 
 

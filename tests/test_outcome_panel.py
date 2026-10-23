@@ -43,8 +43,10 @@ def item(state: str, index: int = 0) -> dict:
 
 def report(*states: str) -> dict:
     """用后端自身的 evaluate 生成判定，保证 UI 测试与真实回执同形。"""
-    return outcome_checks.evaluate([item(state, index)
-                                    for index, state in enumerate(states)])
+    checks = outcome_checks.evaluate([item(state, index)
+                                      for index, state in enumerate(states)])
+    checks['revision'] = 'a' * 64
+    return checks
 
 
 def walk(control):
@@ -120,9 +122,9 @@ def test_verdict_symbols_criteria_details_and_evidence_are_visible():
     blob = text(panel.content)
     for symbol in ('✓', '✗', '⚠', '○', '?'):
         assert symbol in blob, symbol
-    for fragment in ('已核实', '未通过', '已过期', '待人工确认', '无法核验',
-                     '验收条件', '判定说明', '证据 ·', 'artifact=lit_filter',
-                     'material=W1', 'recorded_sha256=a1b2c3',
+    for fragment in ('检查通过', '未通过', '已过期', '待人工确认', '无法核验',
+                     '验收条件', '判定说明', '查看依据', '产物：文献池',
+                     '材料：W1', '记录指纹：a1b2c3',
                      '需要复核', '现有记录不足以支持'):
         assert fragment in blob, fragment
     assert '1/5 项已有记录支持' in panel.count.value
@@ -165,7 +167,9 @@ def test_review_dialog_records_the_review_and_refreshes_the_checklist():
     api.side_effect = [
         {'ok': True, 'checks': before},
         {'ok': True, 'task_id': 'task-a',
-         'review': {'by': '张三', 'note': '已核对引用与图表'}},
+         'review': {'by': '张三', 'note': '已核对引用与图表',
+                    'decision': 'approved', 'revision': 'a' * 64,
+                    'at': '2026-10-23T13:00:00+08:00'}},
         {'ok': True, 'checks': after},
     ]
     load(panel, api, pending)
@@ -174,10 +178,13 @@ def test_review_dialog_records_the_review_and_refreshes_the_checklist():
     assert isinstance(dialogs[-1], ft.AlertDialog)
     panel.reviewer.value = '张三'
     panel.review_note.value = '已核对引用与图表'
+    panel.review_decision.value = 'approved'
     panel.save_review()
+    pending.pop(0)()
     review_request = api.call_args_list[1].args[0]
     assert review_request == {'cmd': 'outcome_review', 'task_id': 'task-a',
-                              'record': {'by': '张三', 'note': '已核对引用与图表'}}
+                              'record': {'by': '张三', 'note': '已核对引用与图表',
+                                         'decision': 'approved', 'expected_revision': 'a' * 64}}
     assert page.pop_dialog.called
     assert isinstance(dialogs[-1], ft.SnackBar)
     pending.pop()()  # 复核成功后自动重新读取清单
@@ -200,7 +207,9 @@ def test_review_requires_both_fields_and_keeps_the_dialog_on_backend_error():
     api.return_value = {'ok': False, 'error': '复核记录缺少复核人'}
     panel.reviewer.value = '张三'
     panel.review_note.value = '已核对引用'
+    panel.review_decision.value = 'approved'
     panel.save_review()
+    pending.pop(0)()
     assert not page.pop_dialog.called
     assert panel.dialog is not None
     assert '复核未保存' in panel.dialog_error.value
@@ -217,9 +226,9 @@ def test_review_dialog_never_writes_into_another_task_after_switching():
     panel.refresh('task-b')
     pending.pop()()
     panel.save_review()
-    assert '任务已切换' in panel.dialog_error.value
+    assert panel.dialog is None
     assert api.call_count == 2  # 只读取了两个任务的清单，没有写复核
-    assert not page.pop_dialog.called
+    assert page.pop_dialog.called
 
 
 def test_late_reply_never_replaces_another_tasks_checklist():
@@ -235,7 +244,7 @@ def test_late_reply_never_replaces_another_tasks_checklist():
     pending[0]()  # 旧任务的迟到回执必须被丢弃
     blob = text(panel.content)
     assert '未通过' in blob
-    assert '已核实' not in blob
+    assert '检查通过' not in blob
     assert panel.task_id == 'task-b'
 
 

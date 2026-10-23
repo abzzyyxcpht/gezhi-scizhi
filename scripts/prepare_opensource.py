@@ -17,8 +17,11 @@ if str(ROOT) not in sys.path:
 from src.version import APP_VERSION as VERSION  # noqa: E402 -- direct script entry adds the repository root
 TREES = ("src", "tests", "tui/src", "tui/test", "tui/scripts", "workflows", "plugins", "skills", "examples", ".github", "packaging")
 ROOT_FILES = ("DESIGN.md", "LICENSE", "NOTICE", "CONTRIBUTING.md", "SECURITY.md", ".gitignore", ".gitattributes", ".env.example", "requirements.txt", "requirements-dev.txt", "requirements-portable.txt", "pytest.ini", "Gezhi.spec", "tui/package.json", "tui/package-lock.json")
-ASSETS = ("gezhi.ico", "gezhi.png", "gezhi.svg", "gezhi-wordmark.png", "research-study.svg", "remote-control.html", "ui-design.json", "ui-workbench.png", "ui-code-conversation.png")
+ASSETS = ("gezhi.ico", "gezhi.png", "gezhi.svg", "gezhi-wordmark.png", "research-study.svg", "remote-control.html", "ui-design.json", "ui-workbench.png", "ui-code-conversation.png", "ui-outcome-checks.png", "ui-outcome-review.png")
 DOC_FILES = (
+    "docs/release-notes-0.13.0.md",
+    "docs/research/2026-10-23-outcome-review-sources.md",
+    "docs/superpowers/plans/2026-10-23-outcome-integration.md",
     "docs/hardening-2026-10-20.md",
     "docs/outcome-checks-2026-10-22.md",
     "docs/release-notes-0.12.0.md",

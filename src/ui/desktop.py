@@ -1060,7 +1060,7 @@ def main(page: ft.Page) -> None:
     def _result_tab_changed() -> None:
         # 验收清单在切到该页签时才读取；无任务时由面板给出明确空状态。
         if result_tabs.selected_index == 6:
-            outcome_panel.refresh(state.get("task_id"))
+            outcome_panel.refresh(state.get("task_id"), force=True)
 
     result_tabs = ft.Tabs(
         selected_index=0, expand=True, length=7,
@@ -3002,7 +3002,7 @@ def main(page: ft.Page) -> None:
             if index == 2:
                 render_results(service.artifacts_of(state["task_id"]), force=True)
                 if result_tabs.selected_index == 6:
-                    outcome_panel.refresh(state["task_id"])
+                    outcome_panel.refresh(state["task_id"], force=True)
         elif index == 2:
             render_results({}, force=True)
             outcome_panel.refresh(None)

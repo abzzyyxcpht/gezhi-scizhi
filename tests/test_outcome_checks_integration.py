@@ -62,7 +62,8 @@ class OutcomeCheckServiceTests(unittest.TestCase):
         self.assertEqual(manual_before["state"], "pending")
 
         reply = bridge.handle({"cmd": "outcome_review", "task_id": self.ctx.task_id,
-                               "record": {"by": "张三", "note": "已核对引用与图表"}})
+                               "record": {"by": "张三", "note": "已核对引用与图表", "decision": "approved",
+                                          "expected_revision": before["checks"]["revision"]}})
         self.assertTrue(reply["ok"], reply)
         self.assertEqual(reply["review"]["by"], "张三")
 
@@ -81,7 +82,8 @@ class OutcomeCheckServiceTests(unittest.TestCase):
 
     def test_review_is_stored_outside_the_task_artifacts(self):
         bridge.handle({"cmd": "outcome_review", "task_id": self.ctx.task_id,
-                       "record": {"by": "张三", "note": "核对完成"}})
+                       "record": {"by": "张三", "note": "核对完成", "decision": "approved",
+                                  "expected_revision": service.outcome_checks(self.ctx.task_id)["revision"]}})
         stored = Path(self.data.name) / "outcome_reviews.json"
         self.assertTrue(stored.is_file())
         payload = json.loads(stored.read_text(encoding="utf-8"))
@@ -106,7 +108,10 @@ class OutcomeReviewStoreTests(unittest.TestCase):
 
     def test_record_stores_a_timestamp_when_not_supplied(self):
         from src import outcome_review
-        entry = outcome_review.record("t1", "张三", "核对完成")
+        ctx = TaskContext("timestamp-review", "research_pipeline", {"topic": "t"})
+        with mock.patch.dict(service._tasks, {ctx.task_id: ctx}):
+            entry = outcome_review.record(ctx.task_id, "张三", "核对完成", decision="approved",
+                                          expected_revision=service.outcome_checks(ctx.task_id)["revision"])
         self.assertTrue(entry["at"])
         self.assertEqual(entry["source"], "user")
 

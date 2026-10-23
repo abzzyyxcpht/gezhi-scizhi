@@ -258,9 +258,41 @@ def self_check(output_path: Path | str, *, resource_root: Path | None = None,
                                         if item["id"] == "material:integrity")
                         if material["state"] != "stale":
                             raise ValueError("Changed material was not reported as stale")
-                        sample.unlink(missing_ok=True)
+                        from src import outcome_review, service
+                        from src.orchestrator.engine import TaskContext
+                        review_ctx = TaskContext('selfcheck-outcome-review', 'research_pipeline',
+                                                 {'topic': 'isolated review check'})
+                        review_ctx.artifacts = artifacts
+                        service._tasks[review_ctx.task_id] = review_ctx
+                        try:
+                            revision = service.outcome_checks(review_ctx.task_id)['revision']
+                            outcome_review.record(review_ctx.task_id, 'self-check', 'needs changes',
+                                                  decision='changes_requested', expected_revision=revision)
+                            rejected = service.outcome_checks(review_ctx.task_id)
+                            if next(item['state'] for item in rejected['items']
+                                    if item['id'] == 'review:manual') != 'failed':
+                                raise ValueError('Requested changes were reported as approval')
+                            outcome_review.record(review_ctx.task_id, 'self-check', 'checked this version',
+                                                  decision='approved', expected_revision=revision)
+                            review_ctx.artifacts['extract'] = {'digest_md': 'a new deliverable'}
+                            revised = service.outcome_checks(review_ctx.task_id)
+                            if next(item['state'] for item in revised['items']
+                                    if item['id'] == 'review:manual') != 'stale':
+                                raise ValueError('Old approval survived a changed deliverable')
+                            try:
+                                outcome_review.record(review_ctx.task_id, 'self-check', 'stale form',
+                                                      decision='approved', expected_revision=revision)
+                            except outcome_review.ReviewError as error:
+                                if error.code != 'stale_revision':
+                                    raise
+                            else:
+                                raise ValueError('A stale review was accepted')
+                        finally:
+                            service._tasks.pop(review_ctx.task_id, None)
+                            sample.unlink(missing_ok=True)
                         return {"items": settled["total"], "verdict": settled["verdict"],
-                                "stale_detected": True, "model_calls": 0}
+                                "stale_detected": True, "review_version_bound": True,
+                                "model_calls": 0}
 
                     check('outcome_checks', outcome_check)
 

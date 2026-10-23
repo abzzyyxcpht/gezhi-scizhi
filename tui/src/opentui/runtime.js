@@ -5,6 +5,7 @@ import React, { useEffect, useRef, useState } from "react"
 import { createRoot, useKeyboard, useTerminalDimensions, useRenderer, usePaste } from "@mbears/opentui-react"
 import { createCliRenderer } from "@mbears/opentui-core"
 import { AppShell } from "./app-shell.js"
+import { brandHeaderRows } from "./components/brand-header.js"
 import { createKeyRouter, resolveEscape, resolveCtrlCIntent } from "./keyboard/router.js"
 import { MODE_TOKENS, modeColor } from "./theme/tokens.js"
 import { SWITCH_FRAMES, SWITCH_FRAME_MS } from "./motion/frames.js"
@@ -2278,7 +2279,9 @@ export function OpenTuiApp({ onExit, reducedMotion: forceReducedMotion = !motion
           ? mentionCandidates.length + 2
           : queued.length + 1
     : 0
-  const transcriptHeight = Math.max(1, (dims.height || 24) - chromeRows(panelRows, draft.split("\n").length))
+  const headerRows = brandHeaderRows({ workspaceMode, status,
+    width: contentWidthForTerminal(dims.width, { sidebarVisible: sidebarLayout === "docked" }) + 4 })
+  const transcriptHeight = Math.max(1, (dims.height || 24) - chromeRows(panelRows, draft.split("\n").length) - (headerRows - 1))
 
   return h(AppShell, {
     state: {

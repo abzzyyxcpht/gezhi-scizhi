@@ -2,6 +2,7 @@
 // 职责：模式同步/切换、斜杠命令子集、非斜杠消息的 agent 发起 + 轮询 + 快照渲染
 import { parseCommand, COMMANDS } from "../commands.js"
 import { executionPlanLines } from "../execution-plan.js"
+import { parseCheckArgs, outcomeCheckLines, validOutcomeChecks, outcomeText, reviewResultLines, checkUsageLines } from "../outcome-checks.js"
 import { normalizeAppearance } from "./theme/preferences.js"
 import { rankHypotheses, consensusFromBrief, buildExperimentTree } from "./components/research-panels.js"
 import { timelineCounts, timelineDetail } from "./components/research-timeline.js"
@@ -155,6 +156,15 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
   let workspaceMode = "general"
   let currentSessionId = null
   let currentTaskId = null // /open 后跟踪当前研究任务：阅读/池类命令带 task_id
+  let outcomeRead = null
+  let outcomeEpoch = 0
+  const outcomeIdentity = () => JSON.stringify({ ...bridge.connection(),
+    localGeneration: bridge.localGeneration, remoteGeneration: bridge.remoteGeneration })
+  const invalidateOutcomeRead = () => { outcomeRead = null; outcomeEpoch++ }
+  const selectTask = id => {
+    if (id !== currentTaskId) invalidateOutcomeRead()
+    currentTaskId = id
+  }
   let lastLaunchPending = false
   let expanded = false // Ctrl+O 全局展开（工具调用详情）
   let planMode = false // Plan 模式：只读规划
@@ -179,6 +189,58 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
 
   async function runCommand(parsed, raw = "") {
     const { name, args } = parsed
+    // 切换操作开始即撤销旧清单，迟到的读取也不能重新授权复核。
+    if (["open", "new", "clear", "demo", "reproduce", "workflow", "connect", "disconnect"].includes(name)) invalidateOutcomeRead()
+    if (name === "checks") {
+      const rows = texts => ({ lines: texts.map(text => ({ text, kind: "outcome" })) })
+      if (bridge.connection().mode !== "local") {
+        invalidateOutcomeRead()
+        return rows(["成果验收和人工复核请在主机本地操作。"])
+      }
+      // 保留原始空白供控制字符校验，不能让通用 parseCommand.trim() 隐去异常字符。
+      const request = parseCheckArgs(raw ? raw.replace(/^ *\/checks/iu, "") : args)
+      if (request.mode === "usage") return rows([request.error, ...checkUsageLines()])
+      const taskId = request.taskId || currentTaskId
+      if (!taskId) return rows(["请先 /open 打开研究任务，或使用 /checks <任务ID> 指定任务。"])
+      const identity = outcomeIdentity()
+      if (request.mode === "review") {
+        const seen = outcomeRead
+        if (!seen || seen.taskId !== taskId || seen.selectedTaskId !== currentTaskId || seen.identity !== identity) {
+          invalidateOutcomeRead()
+          return rows([`请先用 /checks ${taskId} 查看本任务的当前清单，再提交复核。`])
+        }
+        // 一次展示只允许一次提交。超时或异常回执不能自动重发写入。
+        invalidateOutcomeRead()
+        const epoch = outcomeEpoch
+        let response = await bridge.call({ cmd: "outcome_review", task_id: taskId, record: {
+          by: request.by, note: request.note, decision: request.decision, expected_revision: seen.revision,
+        } }).catch(error => ({ ok: false, error: String(error.message || error) }))
+        if (epoch !== outcomeEpoch || identity !== outcomeIdentity() || currentTaskId !== seen.selectedTaskId) {
+          return rows([`复核提交期间任务或连接已变化。请重新读取 /checks ${taskId} 确认记录；本次不会自动重发。`])
+        }
+        if (response?.ok === true && (response.task_id !== taskId || response.review?.revision !== seen.revision
+          || response.review?.by !== request.by || response.review?.note !== request.note || response.review?.decision !== request.decision)) {
+          response = { ok: false, error: "回执与本次复核的任务、清单版本或内容不一致" }
+        }
+        return rows(reviewResultLines(response))
+      }
+      invalidateOutcomeRead()
+      const epoch = outcomeEpoch, selectedTaskId = currentTaskId
+      const response = await bridge.call({ cmd: "outcome_checks", task_id: taskId })
+        .catch(error => ({ ok: false, error: String(error.message || error) }))
+      if (epoch !== outcomeEpoch || identity !== outcomeIdentity() || selectedTaskId !== currentTaskId) {
+        return rows(["任务或连接已变化，本次清单未展示；请重新查看。"])
+      }
+      if (response?.ok !== true) return rows([`成果验收：读取失败。${outcomeText(response?.error, 160) || "后端没有返回有效清单"}`])
+      if (!validOutcomeChecks(response.checks)) return rows(outcomeCheckLines(response.checks))
+      outcomeRead = { taskId, selectedTaskId, identity, revision: response.checks.revision }
+      return rows([
+        `任务 ${taskId} · 清单版本 ${outcomeText(response.checks.revision)}`,
+        ...outcomeCheckLines(response.checks, { details: request.details }),
+        ...(!request.details ? [`查看完整依据：/checks ${taskId} --details`] : []),
+        '复核需明确选择通过或要求修改；/checks review 查看填写方式。',
+      ])
+    }
     if (name === "mode") {
       const next = (args || "").trim()
       if (!next || next === "toggle") {
@@ -495,7 +557,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
           return { openReader: { title: "首次运行检查", lines: text.split("\n") } }
         }
         const taskId = assertOfflineDemo(r)
-        currentTaskId = taskId
+        selectTask(taskId)
         return { lines: [
           { text: `离线示例已启动：${taskId}` },
           { text: redactText(r.notice || "内置合成样例，仅供体验；不可作为真实科研证据。"), dim: true },
@@ -540,7 +602,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
         : { cmd: "workflow_run", workflow_id: "research_pipeline", topic: topic.trim() })
         .catch((e) => ({ ok: false, error: String(e.message || e) }))
       if (!r?.ok) return { lines: [{ text: `✗ 创建失败：${r?.error || "未知错误"}`, dim: true }] }
-      if (r.task_id) currentTaskId = r.task_id
+      if (r.task_id) selectTask(r.task_id)
       return {
         lines: [
           { text: `✓ 任务 ${r.task_id} 已启动流水线：${topic.trim()}`.slice(0, 100) },
@@ -558,7 +620,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
       if (!target) return { lines: [{ text: "用法：/open <任务ID|序号>", dim: true }] }
       const r = await bridge.call({ cmd: "command", text: `/open ${target}` }).catch((e) => ({ ok: false, error: String(e.message || e) }))
       if (!r?.ok) return { lines: [{ text: `✗ /open：${r?.error || "执行失败"}`, dim: true }] }
-      if (r.task_id) currentTaskId = r.task_id
+      if (r.task_id) selectTask(r.task_id)
       const taskId = r.task_id || target
       const rows = (typeof r.text === "string" ? r.text : "").split("\n").filter(Boolean).slice(0, 40).map((line) => ({ text: line }))
       try {
@@ -713,7 +775,7 @@ export function createSessionController({ bridge, now = () => Date.now(), sleep 
     if (!r?.ok) return { lines: [{ text: `✗ /${name}：${r?.error || "执行失败"}`, dim: true }] }
     if (r.result?.session_id) currentSessionId = r.result.session_id
     else if (r.session_id) currentSessionId = r.session_id
-    if (r.task_id) currentTaskId = r.task_id // /open 之后阅读/池类命令带当前任务
+    if (r.task_id) selectTask(r.task_id) // /open 之后阅读/池类命令带当前任务
     const text = typeof r.text === "string" ? r.text : ""
     const rows = text.split("\n").filter(Boolean).slice(0, 40).map((line) => ({ text: line }))
     return { lines: rows.length ? rows : [{ text: `✓ /${name} 已完成`, dim: true }], sessionId: currentSessionId || undefined }

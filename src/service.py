@@ -481,14 +481,22 @@ def outcome_checks(task_id: str) -> dict[str, Any]:
     digests, the research-package deficit list and the human review record.
     """
     from . import config, outcome_checks, outcome_review, research_package
+    from copy import deepcopy
+    from types import SimpleNamespace
+
     ctx = _tasks.get(task_id)
     if ctx is None:
         raise ValueError("请先打开有效的研究任务")
-    manifest = research_package.build_manifest(ctx)
+    # One detached snapshot drives both the checks and the version shown to a reviewer.
+    snapshot = SimpleNamespace(**deepcopy({key: getattr(ctx, key) for key in
+        ("task_id", "workflow", "params", "artifacts", "node_durations", "started_at", "status")}))
+    manifest = research_package.build_manifest(snapshot)
     review = outcome_review.read(task_id)
-    return outcome_checks.run(ctx.artifacts or {}, manifest,
+    return outcome_checks.run(snapshot.artifacts or {}, manifest,
                               {"outcome_review": review},
-                              materials_root=config.UPLOAD_DIR)
+                              materials_root=config.UPLOAD_DIR,
+                              context={key: getattr(snapshot, key) for key in
+                                       ("task_id", "workflow", "params", "started_at", "status")})
 
 
 def export_artifacts(task_id: str, out_dir: str | Path) -> list[str]:
